@@ -823,11 +823,32 @@ p &gt;&gt;= f
 
 <p>モナド（<code>&gt;&gt;=</code>）は、この<b>「状態の伝播」や「失敗のハンドリング」という副作用的な処理を、関数の裏側に完全に隠蔽する</b>ための強力なデザインパターンである。「モナド」という言葉は難解に聞こえるかもしれないが、我々が <code>if_expr</code> を書き換えた過程こそが、まさにモナドの恩恵そのものなのである。</p>
 
+<h4><code>let*</code> 演算子による現代的な糖衣構文</h4>
+<p><code>&gt;&gt;=</code> 演算子によってコードは短くなったが、それでも <code>&gt;&gt;= fun x -&gt;</code> といった記号が続くため、読みにくさがある。</p>
+<p>そこで現代のOCaml（バージョン4.08以降）では、このモナドの連鎖をさらに直感的に書ける<b>「束縛演算子 (Binding operators)」</b>という機能が標準で用意されている。あらかじめ <code>let ( let* ) = bind</code> と定義しておくと、<code>&gt;&gt;= fun x -&gt;</code> を <code>let* x = ... in</code> という通常の変数定義と全く同じ見た目で書けるようになる。</p>
+<p>コンパイラが裏側で <code>bind</code> に変換（脱糖）してくれるため、実行効率は変わらない。これを用いて <code>if_expr</code> を書き直すと以下のようになる。</p>
+
+<pre>
+(* bind を let* として定義し直す *)
+let ( let* ) = bind
+
+(* 手続き型のように自然に書ける if_expr *)
+let rec if_expr input =
+  (let* _  = token (keyword_p "if") in
+   let* e1 = if_expr in
+   let* _  = token (keyword_p "then") in
+   let* e2 = if_expr in
+   let* _  = token (keyword_p "else") in
+   let* e3 = if_expr in
+   return (If (e1, e2, e3)))
+  input
+</pre>
+<p>手続き型言語のように上から下へと処理が流れる、自然で読みやすいコードになった。以後はこの <code>let*</code> 構文を標準として実装を進めていこう。</p>
+
 <h3>6. 他の構文のコンビネータ化と次章への準備</h3>
 
-<p><code>if</code> 式以外の構文解析処理（整数、足し算、比較）も、このパーサコンビネータのスタイルで書き直してみよう。</p>
-<p>ここでは新しく、<b>「左側のパーサを試し、失敗したら右側のパーサを試す」</b>というバックトラック処理を隠蔽するコンビネータ <code>&lt;|&gt;</code> (alt) を導入する。これを使うと <code>match ... with | None -&gt; ...</code> という分岐すら消し去ることができる。
-</p>
+<p><code>if</code> 式以外の構文解析処理（整数、足し算、比較）も、この <code>let*</code> を使ったパーサコンビネータのスタイルで書き直してみよう。</p>
+<p>ここでは新しく、<b>「左側のパーサを試し、失敗したら右側のパーサを試す」</b>というバックトラック処理を隠蔽するコンビネータ <code>&lt;|&gt;</code> (alt) を導入する。これを使うと <code>match ... with | None -&gt; ...</code> という分岐を消すことができる。</p>
 
 <pre>
 (* 選択実行の関数 (alt) *)
@@ -841,24 +862,25 @@ let alt p1 p2 =
 let ( &lt;|&gt; ) = alt
 </pre>
 
-例として、一番単純な整数（<code>primary_expr</code>）、足し算（<code>plus_expr</code>）、および等価演算子（<code>comp_expr</code>）を <code>&gt;&gt;=</code> と <code>&lt;|&gt;</code> を使って書き直したコードを以下に示す。これらがどのように美しいコードに生まれ変わるか、以前の <code>match</code> だらけのコードと見比べてほしい。
+<p>例として、一番単純な整数（<code>primary_expr</code>）、足し算（<code>plus_expr</code>）、および等価演算子（<code>comp_expr</code>）を <code>let*</code> と <code>&lt;|&gt;</code> を使って書き直したコードを以下に示す。以前の <code>match</code> だらけのコードと見比べると、その読みやすさは歴然である。</p>
+<p>（※ <code>let*</code> の範囲を明確にするため、<code>&lt;|&gt;</code> と組み合わせる際は <code>(let* ... in ...) &lt;|&gt; return ...</code> のように括弧でくくる点に注意すること。）</p>
 
 <pre>
 (* 例1: 最小単位（整数のみ）のパース *)
 let rec primary_expr input =
-  (token int_p &gt;&gt;= fun n -&gt; 
+  (let* n = token int_p in
    return (IntLit n))
   input
 
 (* 例2: 足し算のパース *)
 let rec plus_expr input =
   (* 左辺をパース *)
-  (times_expr &gt;&gt;= fun e1 -&gt;
+  (let* e1 = times_expr in
    
-   (* アキュムレータを用いた再帰関数も、&gt;&gt;= と &lt;|&gt; で書ける *)
+   (* アキュムレータを用いた再帰関数も、let* と &lt;|&gt; で書ける *)
    let rec parse_rest current_e =
-     (token (keyword_p "+") &gt;&gt;= fun _ -&gt;
-      times_expr &gt;&gt;= fun e2 -&gt;
+     (let* _  = token (keyword_p "+") in
+      let* e2 = times_expr in
       let new_e = Plus (current_e, e2) in
       parse_rest new_e)
      &lt;|&gt; return current_e  (* "+" が無ければ(失敗したら) current_e を返す *)
@@ -868,17 +890,17 @@ let rec plus_expr input =
 
 (* 例3: 比較演算(=)のパース *)
 let rec comp_expr input =
-  (plus_expr &gt;&gt;= fun e1 -&gt;
+  (let* e1 = plus_expr in
    
-   (token (keyword_p "=") &gt;&gt;= fun _ -&gt;
-    plus_expr &gt;&gt;= fun e2 -&gt;
+   (let* _  = token (keyword_p "=") in
+    let* e2 = plus_expr in
     return (Eq (e1, e2)))
    &lt;|&gt; return e1) (* "=" が無ければ左辺 e1 をそのまま返す *)
   input
 </pre>
 
 <h2>課題 4-2-5 (パーサコンビネータへの書き換え)</h2>
-上記の例を参考に、まだコンビネータのスタイルに書き換えられていない以下の機能について、<code>&gt;&gt;=</code> と <code>token</code>（および <code>&lt;|&gt;</code>）を用いてコードを書き換えなさい。
+上記の例を参考に、まだコンビネータのスタイルに書き換えられていない以下の機能について、<code>let*</code> と <code>token</code>（および <code>&lt;|&gt;</code>）を用いてコードを書き換えなさい。
 
 <ol>
 <li> <b>真理値の追加:</b> <code>primary_expr</code> を拡張し、整数のパースに失敗したら <code>true</code>、それも失敗したら <code>false</code> を試すように <code>&lt;|&gt;</code> で繋ぎなさい。</li>
@@ -888,12 +910,32 @@ let rec comp_expr input =
 
 書き換え後も、これまでに試したすべてのテスト・データ（<code>if 0 &lt; 10 then ...</code> など）が正しくパースできることを確認すること。
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 <h3>7. 変数と let 式の追加：識別子と予約語の分離</h3>
 
-次は、プログラム言語において重要な「変数」と、それを束縛する「<code>let</code> 式」をパーサに追加する。
-対象とする構文は <code>let x = e1 in e2</code> （式 <code>e1</code> の計算結果を 変数 <code>x</code> に束縛して、式 <code>e2</code> を計算する）と、変数 <code>x</code> 自身である。
+次は、プログラム言語において基本となる「変数」と、それを束縛する「<code>let</code> 式」をパーサに追加する。
+対象とする構文は <code>let x = e1 in e2</code> （式 <code>e1</code> の評価結果を変数 <code>x</code> に束縛し、式 <code>e2</code> を評価する）と、変数 <code>x</code> 自身である。
 
-この追加において最も注意すべきなのは、<b>字句解析におけるキーワード（予約語）と変数名の衝突</b>である。例えば、<code>if</code> という文字列は変数名として使えてしまうと構文が崩壊してしまう。この問題をいかに解決するかに着目しながら、これまでと同様に全体をサブ目標に分割して実装を進めていく。
+この追加において注意すべき点は、<b>字句解析におけるキーワード（予約語）と変数名の衝突</b>である。例えば、<code>if</code> という文字列が変数名として扱われると、意図した通りにパースできなくなる。この問題を解決する手順を含め、これまでと同様に全体をサブ目標に分割して実装を進める。
 
 <ul>
 <li> <b>サブ目標 R: 抽象構文木（AST）の拡張</b><br>
@@ -903,13 +945,13 @@ let rec comp_expr input =
 <li> <b>サブ目標 T: 構文解析器の基本要素（葉）の拡張</b><br>
 ASTの末端となる <code>primary_expr</code> を拡張し、変数をパースできるようにする。</li>
 <li> <b>サブ目標 U: <code>let</code> 式のパースとエントリーポイントの統合</b><br>
-<code>let</code> 式のパーサを作成し、一番優先順位の低いトップレベルの式として <code>if</code> 式と並列にパースできるように全体を統合する。</li>
+<code>let</code> 式のパーサを作成し、優先順位の低いトップレベルの式として <code>if</code> 式と並列にパースできるように全体を統合する。</li>
 </ul>
 
 それでは、それぞれのサブ目標について具体的な実装を見ていこう。
 
 <h4>サブ目標 R: 抽象構文木（AST）の拡張</h4>
-まずは、新しく追加する要素を表現できるように <code>exp</code> 型を拡張する。
+新しく追加する要素を表現できるように <code>exp</code> 型を拡張する。
 
 <ul>
 <li> <b>ミニ目標 R-1: <code>Var</code> と <code>Let</code> の追加</b><br>
@@ -931,11 +973,11 @@ type exp =
 </pre>
 
 <h4>サブ目標 S: 字句解析器の拡張（識別子と予約語の分離）</h4>
-変数名（識別子）のパース処理を作成する。OCaml のような言語では、変数名の最初の1文字は「アルファベット」、2文字目以降は「アルファベット、数字、アンダースコア（<code>_</code>）」の連続であると決まっている。
+変数名（識別子）のパース処理を作成する。ここでは、変数名の最初の1文字はアルファベット、2文字目以降はアルファベット、数字、アンダースコア（<code>_</code>）の連続であるとする。
 
 <ul>
 <li> <b>ミニ目標 S-1: 文字種の判定関数の用意</b><br>
-文字がアルファベットであるか、あるいは英数字であるかを判定する小さな関数を用意する。
+文字がアルファベットであるか、あるいは英数字・アンダースコアであるかを判定する関数を用意する。
 <li> <b>ミニ目標 S-2: 識別子の切り出しと予約語チェック (<code>ident_p</code>)</b><br>
 先頭がアルファベットであれば文字の読み取りを開始し、続く英数字を束ねて文字列にする。<b>その後、得られた文字列が予約語リストに含まれていないかチェックし、含まれていればパース失敗（<code>None</code>）とする。</b>
 </ul>
@@ -968,14 +1010,14 @@ let ident_p (input: input) : (string * input) option =
       if List.mem str reserved then
         None (* 読み取った文字列が予約語だった場合は、変数名としてはパース失敗とする *)
       else
-        Some (str, rest) (* 予約語でなければ、立派な変数名として返す *)
+        Some (str, rest) (* 予約語でなければ、変数名として返す *)
         
   | _ -&gt; None
 </pre>
-この「予約語の除外」を行わないと、<code>if true then 1 else 2</code> というプログラムの <code>if</code> を、「<code>if</code> という名前の変数」として誤認してしまい、正しいパースができなくなってしまう。言語処理系において重要なテクニックである。
+予約語を除外しないと、<code>if true then 1 else 2</code> の <code>if</code> を変数として誤認し、正しくパースできなくなる。これは言語処理系において一般的な手順である。
 
 <h4>サブ目標 T: 構文解析器の基本要素（葉）の拡張</h4>
-字句解析で <code>ident_p</code> が完成したので、ASTの末端となる <code>primary_expr</code> を拡張し、変数をパースできるようにする。前節で導入した選択実行のコンビネータ <code>&lt;|&gt;</code> を使うことで、コードの追加は極めて容易である。
+字句解析の <code>ident_p</code> を利用し、ASTの末端となる <code>primary_expr</code> を拡張して変数をパースできるようにする。前節の方針通り、<code>let*</code> 構文と選択実行のコンビネータ <code>&lt;|&gt;</code> を組み合わせて記述する。
 
 <ul>
 <li> <b>ミニ目標 T-1: 変数のパース処理の追加</b><br>
@@ -985,26 +1027,26 @@ let ident_p (input: input) : (string * input) option =
 <pre>
 (* ミニ目標 T-1: 変数(Var)の追加 *)
 let rec primary_expr input =
-  ( (token int_p &gt;&gt;= fun n -&gt; return (IntLit n))
+  ( (let* n = token int_p in return (IntLit n))
     &lt;|&gt; 
-    (token (keyword_p "true") &gt;&gt;= fun _ -&gt; return (BoolLit true))
+    (let* _ = token (keyword_p "true") in return (BoolLit true))
     &lt;|&gt; 
-    (token (keyword_p "false") &gt;&gt;= fun _ -&gt; return (BoolLit false))
+    (let* _ = token (keyword_p "false") in return (BoolLit false))
     &lt;|&gt; 
     (* 追加: 識別子が読めたら Var の構文木にする *)
-    (token ident_p &gt;&gt;= fun x -&gt; return (Var x)) )
+    (let* x = token ident_p in return (Var x)) )
   input
 </pre>
 
 <h4>サブ目標 U: <code>let</code> 式のパースとエントリーポイントの統合</h4>
-最後に <code>let x = e1 in e2</code> をパースする処理を作成する。
-<code>let</code>  式も <code>if</code>   式と同様に大きな範囲を囲む構文であるため、優先順位は最も低い。そこで、構文解析のトップレベル（一番外側）の関数を <code>expr</code> という名前に統一し、そこに <code>let</code> と <code>if</code> の両方を並列に組み込む。
+次に <code>let x = e1 in e2</code> をパースする処理を作成する。
+<code>let</code> 式も <code>if</code> 式と同様に優先順位が低い構文である。そこで、構文解析のトップレベルの関数を <code>expr</code> という名前に統一し、<code>let</code> と <code>if</code> の両方を組み込む。
 
 <ul>
 <li> <b>ミニ目標 U-1: <code>let_expr</code> の実装</b><br>
-パーサコンビネータ <code>&gt;&gt;=</code> を使い、<code>let</code>、変数名（<code>x</code>）、<code>=</code>、式（<code>e1</code>）、<code>in</code>、式（<code>e2</code>）を流れるように読み取る。
+<code>let*</code> を使い、<code>let</code>、変数名（<code>x</code>）、<code>=</code>、式（<code>e1</code>）、<code>in</code>、式（<code>e2</code>）を順に読み取る。
 <li> <b>ミニ目標 U-2: トップレベルの統合と <code>parse</code> の更新</b><br>
-一番優先順位の低いトップレベルのパーサ <code>expr</code> を新設し、「<code>let</code>式、または <code>if</code>式、または比較式（<code>comp_expr</code>）」の順番でパースを試すようにする。
+トップレベルのパーサ <code>expr</code> を新設し、<code>let</code> 式、<code>if</code> 式、比較式（<code>comp_expr</code>）の順にパースを試すようにする。
 </ul>
 
 <pre>
@@ -1016,23 +1058,23 @@ let rec expr input =
 
 (* ミニ目標 U-1: let 式のパース *)
 and let_expr input =
-  (token (keyword_p "let") &gt;&gt;= fun _ -&gt;
-   token ident_p           &gt;&gt;= fun x -&gt;   (* 変数名 x を読む *)
-   token (keyword_p "=")   &gt;&gt;= fun _ -&gt;
-   expr                    &gt;&gt;= fun e1 -&gt;  (* 束縛される式 e1 を読む *)
-   token (keyword_p "in")  &gt;&gt;= fun _ -&gt;
-   expr                    &gt;&gt;= fun e2 -&gt;  (* 続く本体の式 e2 を読む *)
+  (let* _  = token (keyword_p "let") in
+   let* x  = token ident_p in          (* 変数名 x を読む *)
+   let* _  = token (keyword_p "=") in
+   let* e1 = expr in                   (* 束縛される式 e1 を読む *)
+   let* _  = token (keyword_p "in") in
+   let* e2 = expr in                   (* 続く本体の式 e2 を読む *)
    return (Let (x, e1, e2)))
   input
 
 (* 以前作成した if_expr も、再帰呼び出し先を expr に変更する *)
 and if_expr input =
-  (token (keyword_p "if")   &gt;&gt;= fun _  -&gt;
-   expr                     &gt;&gt;= fun e1 -&gt;
-   token (keyword_p "then") &gt;&gt;= fun _  -&gt;
-   expr                     &gt;&gt;= fun e2 -&gt;
-   token (keyword_p "else") &gt;&gt;= fun _  -&gt;
-   expr                     &gt;&gt;= fun e3 -&gt;
+  (let* _  = token (keyword_p "if") in
+   let* e1 = expr in
+   let* _  = token (keyword_p "then") in
+   let* e2 = expr in
+   let* _  = token (keyword_p "else") in
+   let* e3 = expr in
    return (If (e1, e2, e3)))
   input
 
@@ -1051,10 +1093,10 @@ let parse (s: string) : exp =
 
 <h2>課題 4-2-6 (let式と変数のパース確認)</h2>
 
-本節で作成した変数のパース処理（<code>ident_p</code> と <code>primary_expr</code>）および <code>let</code> 式のパース処理を統合し、手元の環境で動作確認を行いなさい。
+本節で作成した変数のパース処理（<code>ident_p</code> と <code>primary_expr</code>）および <code>let</code> 式のパース処理を統合し、動作確認を行いなさい。
 
 <p><b>テスト・データ:</b></p>
-以下の文字列を <code>parse</code> 関数に与えたとき、コメントに記載された通りの構文木が正しく生成されることを確認しなさい。
+以下の文字列を <code>parse</code> 関数に与えたとき、コメントに記載された通りの構文木が生成されることを確認しなさい。
 
 <pre>
 (* 期待されるAST: Let("x", IntLit 10, Plus(Var "x", IntLit 5)) *)
@@ -1070,6 +1112,25 @@ let test3 = parse "let x = 1 in let y = 2 in x + y" ;;
 (* 期待されるエラー: Parse Error （"let" は予約語なので変数名には使えない） *)
 let test4 = parse "let let = 1 in let + 1" ;;
 </pre>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 <h3>今後セルフホストをするために必要になりそうだが、ここでは扱っていない構文要素</h3>
 

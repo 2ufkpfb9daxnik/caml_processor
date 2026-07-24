@@ -17,6 +17,7 @@ type value =
 | IntVal of int
 | BoolVal of bool
 
+(* 環境の作成、更新、環境 *)
 let emptyenv () = []
 let ext env x v = (x, v) :: env
 let rec lookup x env =
