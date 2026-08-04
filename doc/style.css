@@ -1,0 +1,54 @@
+ :root {
+    color-scheme: light;
+    --page-bg: #ffffff;
+    --page-fg: #1f1f1f;
+}
+
+body.theme-dark {
+    color-scheme: dark;
+    --page-bg: #121212;
+    --page-fg: #e8e8e8;
+}
+
+body {
+    max-width: 48rem;
+    margin: 0 auto;
+    padding: 1rem;
+    box-sizing: border-box;
+    background: var(--page-bg);
+    color: var(--page-fg);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+a {
+    color: LinkText;
+}
+
+a:visited {
+    color: VisitedText;
+}
+
+.site-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.site-header h1 {
+    margin: 0;
+}
+
+.theme-toggle {
+    border: 1px solid currentColor;
+    background: transparent;
+    color: inherit;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.5rem;
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+}

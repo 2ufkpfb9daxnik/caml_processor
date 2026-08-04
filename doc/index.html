@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCamlと言語処理系入門</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="script.js" defer></script>
+</head>
+<body>
+    <div class="site-header">
+        <button class="theme-toggle" type="button" aria-label="ダークモードに切り替え">🌙</button>
+    </div>
+    <h1>OCamlと言語処理系入門</h1>
+    <p>インクリメンタルな形で、OCamlのサブセット言語の処理系を作ることで、OCamlに入門しましょう。<a href = "https://www.logic.cs.tsukuba.ac.jp/jikken/">筑波大学 情報科学類 3年次実験（ソフトウェアサイエンス実験）のホームページ</a>を非常に参考にしていますが、OCamlの入門の部分をもう少し丁寧に（ページで解説）したり、ちゃんとはじめからパーサ自作の話をしたり、低レイヤもはじめから触れるようにしていくつもりです。最終的にセルフホストを目的とします。また、<a href = "https://www.sigbus.info/compilerbook">低レイヤを知りたい人のためのCコンパイラ作成入門</a>も参考にしています。</p>
+    <p>それぞれの言語で、（あるなら）次の要素を更新することでインクリメンタルに作ります。</p>
+    <ul>
+        <li>言語機能</li>
+        <li>具体構文</li>
+        <li>字句解析器</li>
+        <li>構文解析器</li>
+        <li>抽象構文木</li>
+        <li>型推論</li>
+        <li>中間表現</li>
+        <li>スタックマシン命令</li>
+        <li>コンパイラ</li>
+        <li>仮想機械</li>
+        <li>値の実行時表現</li>
+        <li>テスト</li>
+    </ul>
+    <a href = "common_mistakes.html">よくあるミス</a>
+    <a href = "faq.html">質問解答</a>
+    <h2>目次</h2>
+    <p>セルフホストまで</p>
+    <ol>
+        <li><a href = "introduction_to_ocaml.html">OCaml入門</a></li>
+        <li><a href = "four_arithmetic_operations.html">四則演算</a></li>
+        <li><a href = "if.html">真偽値、比較演算、if</a></li>
+        <li><a href = "let.html">変数、let、再帰的な束縛</a></li>
+        <li><a href = "functions.html">関数、クロージャ</a></li>
+        <li><a href = "tuples.html">組</a></li>
+        <li><a href = "algebraic_data_types.html">代数的データ型</a></li>
+        <li><a href = "lists.html">リスト</a></li>
+        <li><a href = "strings_chars_units.html">文字列、文字、単位型</a></li>
+        <li><a href = "type_inference.html">型推論</a></li>
+        <li><a href = "records.html">レコード</a></li>
+        <li><a href = "references_assignments.html">参照、代入</a></li>
+        <li><a href = "arrays.html">配列</a></li>
+        <li><a href = "input_output_external_functions.html">入出力、外部関数</a></li>
+        <li><a href = "garbage_collection.html">ガベージコレクション</a></li>
+        <li><a href = "self_hosting.html">セルフホスト</a></li>
+    </ol>
+    <p>発展的内容</p>
+    <ol>
+        <li><a href = "exceptions.html">例外</a></li>
+        <li><a href = "modules.html">モジュール</a></li>
+        <li><a href = "functors.html">ファンクタ</a></li>
+        <li><a href = "continuations.html">継続</a></li>
+        <li><a href = "effect_handlers.html">エフェクトハンドラ</a></li>
+    </ol>
+</body>
+</html>
