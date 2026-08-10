@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCamlをWindowsで使う</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="script.js" defer></script>
+</head>
+<body>
+    <div class="site-header">
+        <button class="theme-toggle" type="button"></button>
+    </div>
+    <a href = "index.html">トップページ</a>
+    <h1>OCamlをWindowsで使う</h1>
+    <a href = "https://ocaml.org/docs/ocaml-on-windows">OCaml公式のページ ここを見たほうが最新でわかりやすいかも</a>
+    <p>このサイトで必要なOCaml環境をWindowsに入れる方法について説明します。なお、2026/08/05時点の情報です。</p>
+    <p>opamというのがOCamlのパッケージマネージャーで、これを入れます。</p>
+    <p>これまではDiskuv ocamlやwslを使っていましたが、opam2.2以降はwindowsネイティブに入れることができるようになりました。</p>
+    <p>PowerShellを開いて、Gitとopamを導入します。Gitが既にインストールされているなら、そこは消しててください。</p>
+    <pre><code>winget install Git.Git OCaml.opam</code></pre>
+    <p>インストールできたら、一旦PowerShellを全部閉じて、再び開いてください。</p>
+    <pre><code>opam --version</code></pre>
+    <p>でバージョンが表示されたら使えるようになっています。</p>
+    <pre><code>opam init</code></pre>
+    <p>で初期化します。 ここでコンパイラなどをダウンロードするので時間がかかります。途中でunix環境について質問が来たら、好きなものを選べばいいですが、Cygwinが推奨されるらしいです。これは公式ページも確認してください。終わったら、</p>
+    <pre><code>(& opam env --switch=default) -split '\\r?\\n' | ForEach-Object { Invoke-Expression $_ }</code></pre>
+    <p>を実行してください。これで環境が反映されます。</p>
+    <pre><code>ocaml --version</code></pre>
+    <p>などで確認してみてください。正しくバージョンが表示されれば成功です。</p>
+    <pre><code>ocaml</code></pre>
+    <p>でreplが起動します。例えば</p>
+    <pre><code>print_endline "Hello, World!";;</code></pre>
+    <p>とかができます。区切りは<code>;;</code>です。この単位で実行されます。</p>
+</body>
+</html>

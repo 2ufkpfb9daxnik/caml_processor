@@ -14,6 +14,7 @@ body {
     max-width: 48rem;
     margin: 0 auto;
     padding: 1rem;
+    padding-bottom: 90vh;
     box-sizing: border-box;
     background: var(--page-bg);
     color: var(--page-fg);
