@@ -41,22 +41,195 @@
 <p>これを簡単に実装するために、先ほどの4つの処理（サブ目標）を、さらに具体的な「ミニ目標」に分割してコードを記述していく。</p>
 
 <h4>サブ目標 1: 入力文字列を文字のリストに変換する</h4>
-<p>字句解析器が受け取る元のソースコードは、<code>"1 + 2"</code> のような <code>string</code> 型の文字列である。OCamlでは <code>String.get s i</code> または <code>s.[i]</code> によって文字を取り出せるが、添字を使う方法では「現在何文字目まで読んだか」も管理する必要がある。</p>
-<p>本章では、先頭の文字と未処理の残りを <code>c :: cs</code> によって直接分けられるよう、パーサの入力を <code>char list</code> として扱う。</p>
+
+<p>
+字句解析器が受け取る元のソースコードは、
+<code>"1 + 2"</code> のような <code>string</code> 型の文字列である。
+OCamlでは <code>String.get s i</code> または <code>s.[i]</code>
+によって文字を取り出せるが、添字を使う方法では
+「現在何文字目まで読んだか」も管理する必要がある。
+</p>
+
+<p>
+本章では、先頭の文字と未処理の残りを
+<code>c :: cs</code> によって直接分けられるよう、
+パーサの入力を <code>char list</code> として扱う。
+</p>
+
 <ul>
-<li><b>ミニ目標 1-1: 入力の型を定義する</b><br><code>char list</code> に <code>input</code> という名前を付ける。</li>
-<li><b>ミニ目標 1-2: 文字列を文字のリストへ変換する</b><br><code>String.to_seq</code> と <code>List.of_seq</code> を組み合わせる。</li>
+<li>
+<b>ミニ目標 1-1: 入力の型を定義する</b><br>
+<code>char list</code> に <code>input</code> という名前を付ける。
+</li>
+<li>
+<b>ミニ目標 1-2: 文字列を文字の列へ変換する</b><br>
+<code>String.to_seq</code> を使って、
+文字列に含まれる文字を先頭から順番に取り出せる列を作る。
+</li>
+<li>
+<b>ミニ目標 1-3: 文字の列をリストへ変換する</b><br>
+<code>List.of_seq</code> を使って、
+文字の列を <code>char list</code> に変換する。
+</li>
 </ul>
+
+<h5>ミニ目標 1-1: <code>input</code> の型定義</h5>
 <pre>
 (* input は、まだ読み取っていない文字のリストを表す *)
 type input = char list
+</pre>
 
+<h5>ミニ目標 1-2: <code>String.to_seq</code> による文字の列への変換</h5>
+
+<p>
+<code>String.to_seq</code> は、文字列を受け取り、
+その文字列に含まれる文字を先頭から順番に取り出せる
+シーケンスを返す関数である。
+</p>
+
+<pre>
+(* String.to_seq : string -&gt; char Seq.t *)
+</pre>
+
+<p>
+入力の型は <code>string</code>、出力の型は
+<code>char Seq.t</code> である。
+例えば、次の式を考える。
+</p>
+
+<pre>
+String.to_seq "abc"
+</pre>
+
+<p>
+この式は、概念的には
+<code>'a'</code>、<code>'b'</code>、<code>'c'</code>
+をこの順番で取り出せるシーケンスを返す。
+ただし、結果はまだ
+<code>['a'; 'b'; 'c']</code> というリストではない。
+結果の型は <code>char list</code> ではなく、
+<code>char Seq.t</code> である。
+</p>
+
+<p>
+<code>Seq.t</code> は、要素を最初からすべて格納するリストとは異なり、
+必要になったときに次の要素を取り出すための列を表す。
+そのため、OCamlの対話環境でシーケンスをそのまま表示すると、
+関数を表す <code>&lt;fun&gt;</code> と表示される。
+</p>
+
+<pre>
+# String.to_seq "abc";;
+- : char Seq.t = &lt;fun&gt;
+</pre>
+
+<h5>ミニ目標 1-3: <code>List.of_seq</code> によるリストへの変換</h5>
+
+<p>
+<code>List.of_seq</code> は、シーケンスを受け取り、
+その要素を順番に格納したリストを返す関数である。
+</p>
+
+<pre>
+(* List.of_seq : 'a Seq.t -&gt; 'a list *)
+</pre>
+
+<p>
+型に現れる <code>'a</code> は、要素の型を表す型変数である。
+したがって、整数のシーケンスを渡せば
+<code>int list</code> が返り、文字のシーケンスを渡せば
+<code>char list</code> が返る。
+</p>
+
+<p>
+今回は <code>String.to_seq</code> が返した
+<code>char Seq.t</code> を渡すので、
+<code>List.of_seq</code> の型変数 <code>'a</code> は
+<code>char</code> になる。
+</p>
+
+<pre>
+List.of_seq : char Seq.t -&gt; char list
+</pre>
+
+<p>
+したがって、2つの関数を組み合わせると、
+型は次のように変化する。
+</p>
+
+<pre>
+"abc"
+(* string *)
+    |
+    | String.to_seq
+    v
+文字を順番に取り出せる列
+(* char Seq.t *)
+    |
+    | List.of_seq
+    v
+['a'; 'b'; 'c']
+(* char list *)
+</pre>
+
+<p>
+以上をまとめて、文字列をパーサの入力へ変換する
+<code>chars_of_string</code> を次のように定義する。
+</p>
+
+<pre>
 (* chars_of_string : string -&gt; input *)
 let chars_of_string s =
   List.of_seq (String.to_seq s)
 </pre>
-<p>例えば <code>chars_of_string "12+3"</code> は <code>['1'; '2'; '+'; '3']</code> を返す。以後のパーサは、先頭の文字を消費するたびに、残りのリストを次の処理へ渡す。</p>
 
+<p>
+<code>input</code> は <code>char list</code> の別名なので、
+型を展開すると、<code>chars_of_string</code> の型は
+次のものと同じである。
+</p>
+
+<pre>
+(* chars_of_string : string -&gt; char list *)
+</pre>
+
+<p>
+例えば、次の式を評価する。
+</p>
+
+<pre>
+chars_of_string "12+3"
+</pre>
+
+<p>
+まず、内側の <code>String.to_seq</code> が
+文字列を文字のシーケンスへ変換する。
+次に、外側の <code>List.of_seq</code> が
+そのシーケンスを文字のリストへ変換する。
+最終的な結果は次の通りである。
+</p>
+
+<pre>
+['1'; '2'; '+'; '3']
+</pre>
+
+<p>
+以後のパーサは、この文字リストを入力として受け取る。
+先頭の文字を消費するときは、
+文字列の添字を操作する代わりに、
+リストに対するパターンマッチを使う。
+</p>
+
+<pre>
+match input with
+| c :: cs -&gt;
+    (* c  は先頭の1文字
+       cs はまだ読み取っていない残りの文字リスト *)
+    ...
+| [] -&gt;
+    (* 入力をすべて読み終えた *)
+    ...
+</pre>
 <h4>サブ目標 2: 1文字を処理する</h4>
 「入力された文字列の先頭から、条件に合う1文字だけを読み取る」という処理は、以下の2つのミニ目標を組み合わせることで実現できる。
 
