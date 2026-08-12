@@ -56,6 +56,48 @@ OCamlでは <code>String.get s i</code> または <code>s.[i]</code>
 パーサの入力を <code>char list</code> として扱う。
 </p>
 
+<p>
+その実現のために、まず、<code>string</code>型として受け取ったソースコードを、一度、<code>sequence</code>型という「文字を順番に取り出せる列」に変換し、さらにそれを <code>char list</code> に変換することで、サブ目標1を達成する。
+</p>
+
+<p>
+シーケンスは、リストと同じように、
+要素を先頭から順番に扱うためのデータである。
+両者は構造もよく似ており、
+どちらも「先頭の要素」と「その後ろに続く部分」からなる。
+</p>
+
+<p>
+違いは、後ろに続く部分の持ち方にある。
+リストでは、後ろに続く部分もすでに作られたリストである。
+一方、シーケンスでは、後ろに続く部分を直接持つ代わりに、
+それを必要になったときに返す関数を持っている。
+</p>
+
+<pre>
+リスト:
+先頭の要素 ＋ 残りのリスト
+
+シーケンス:
+先頭の要素 ＋ 残りを返す関数
+</pre>
+
+<p>
+ただし、今回この違いを詳しく利用するわけではない。
+OCamlの標準ライブラリには、
+文字列を直接 <code>char list</code> に変換する関数がないため、
+文字列とリストの両方が変換に対応している
+<code>Seq.t</code> を中間の形式として使用する。
+</p>
+
+<pre>
+string
+  ↓ String.to_seq
+char Seq.t
+  ↓ List.of_seq
+char list
+</pre>
+
 <ul>
 <li>
 <b>ミニ目標 1-1: 入力の型を定義する</b><br>
@@ -92,8 +134,6 @@ type input = char list
 </pre>
 
 <p>
-入力の型は <code>string</code>、出力の型は
-<code>char Seq.t</code> である。
 例えば、次の式を考える。
 </p>
 
@@ -102,11 +142,8 @@ String.to_seq "abc"
 </pre>
 
 <p>
-この式は、概念的には
-<code>'a'</code>、<code>'b'</code>、<code>'c'</code>
+この式は、<code>'a'</code>、<code>'b'</code>、<code>'c'</code>
 をこの順番で取り出せるシーケンスを返す。
-ただし、結果はまだ
-<code>['a'; 'b'; 'c']</code> というリストではない。
 結果の型は <code>char list</code> ではなく、
 <code>char Seq.t</code> である。
 </p>
@@ -153,24 +190,6 @@ List.of_seq : char Seq.t -&gt; char list
 </pre>
 
 <p>
-したがって、2つの関数を組み合わせると、
-型は次のように変化する。
-</p>
-
-<pre>
-"abc"
-(* string *)
-    |
-    | String.to_seq
-    v
-文字を順番に取り出せる列
-(* char Seq.t *)
-    |
-    | List.of_seq
-    v
-['a'; 'b'; 'c']
-(* char list *)
-</pre>
 
 <p>
 以上をまとめて、文字列をパーサの入力へ変換する
