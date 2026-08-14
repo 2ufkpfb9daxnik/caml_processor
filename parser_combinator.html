@@ -257,11 +257,7 @@ chars_of_string "12+3"
 (* satisfy : (char -&gt; bool) -&gt; input -&gt; (char * input) option *)
 let satisfy cond input =
   match input with
-  | c :: cs -&gt; 
-    if cond c then
-      Some (c, cs)
-    else
-      None
+  | c :: cs when cond c -&gt; Some (c, cs)
   | _ -&gt; None
 
 (* ミニ目標 2-2: 特定の1文字を読む *)
@@ -271,6 +267,26 @@ let satisfy cond input =
 let char_p c input =
   satisfy (fun x -&gt; x = c) input
 </pre>
+
+<p>
+パターンの後ろに書かれている <code>when</code> は、
+そのパターンに追加の条件を付けるための構文であり、
+「ガード」と呼ばれる。
+パターンに一致し、さらに <code>when</code> の後ろの条件式が
+<code>true</code> になった場合だけ、その処理が実行される。
+</p>
+
+<pre>
+| c :: cs when cond c -&gt; Some (c, cs)
+</pre>
+
+<p>
+この場合は、入力が空でないリスト
+<code>c :: cs</code> であり、さらに先頭文字 <code>c</code> が
+条件 <code>cond</code> を満たす場合だけ、パースに成功する。
+条件を満たさない場合は次のパターンへ進み、
+<code>None</code> を返す。
+</p>
 
 <code>satisfy</code> は汎用的な関数である。引数として「文字を受け取って真偽値を返す関数（<code>cond</code>）」を受け取るため、後述の「数字かどうか」の判定など、様々な用途に使い回すことができる。
 
@@ -909,10 +925,16 @@ let test3 = parse "if 0 &lt; 10 then if false then 3 else 4 else 5" ;;
 （※ <code>test2</code> で括弧 <code>(2 + 3)</code> が登場しているが、もし <code>primary_expr</code> に括弧の処理が含まれていない場合は、エラーになる。時間があれば <code>primary_expr</code> を拡張し、<code>"("</code> を読んだら <code>if_expr</code> を呼び出し、その後に <code>")"</code> を読むような処理を追加してみよ。）
 
 <h3>5. 高階関数の導入とパーサコンビネータによる構文解析</h3>
-<p>前節の <code>if_expr</code> では、成功結果と残りの入力を受け取る <code>match</code> が何度も入れ子になった。そこで、同じ形の処理を高階関数へまとめる。</p>
+<p>前節で <code>if</code> 式のパースを実装したが、<code>match</code> 式の中に <code>match</code> 式が入る「入れ子」が深くなり、冗長なコードとなってしまった。
+</p>
+<p>この実験は<b>美しく、簡潔に</b>プログラミングしよう！という趣旨であるので、このような冗長な書き方は許しがたい。というわけで、見た目の美しさと保守性を追求して、共通する処理を1つにまとめることにする。
+</p>
+<p>全体の見通しを良くするため、まずは本節で順番に取り組むサブ目標を列挙しておこう。</p>
 <ul>
-<li><b>サブ目標 17: <code>bind</code> と <code>return</code> の定義</b><br>成功時の値と残りの入力の受け渡し、および失敗の伝播を共通化する。</li>
-<li><b>サブ目標 18: <code>bind</code> による <code>if_expr</code> の書き換え</b><br>処理を省略せず最後まで書き、別の種類の入れ子が残ることを確認する。</li>
+<li><b>サブ目標 17: <code>bind</code> と <code>return</code> の定義</b><br>
+「パースが成功したら、その結果を使って次のパースを行う」という共通処理を、1つの高階関数としてくくり出す。</li>
+<li><b>サブ目標 18: <code>bind</code> による <code>if_expr</code> の書き換え</b><br>
+定義した <code>bind</code> 関数を使うと、冗長だった <code>match</code> と <code>None</code> の処理を省略できることを確認する。</li>
 <li><b>サブ目標 19: 束縛演算子 <code>let*</code> の導入</b><br>同じ <code>bind</code> の連鎖を上から下へ読める形にする。</li>
 </ul>
 <h4>サブ目標 17: <code>bind</code> と <code>return</code> の定義</h4>
@@ -930,6 +952,9 @@ let bind p f =
 let return v =
   fun input -&gt; Some (v, input)
 </pre>
+
+<p>ここでわかるように、<code>bind</code> の第2引数 <code>f</code> は、<b>関数</b>である。<code>p</code> が成功した場合だけ、読み取った値 <code>v</code> を <code>f</code> に渡して次のパースへ進む。一方、<code>p</code> が失敗した場合は、後続の処理を実行せずに <code>None</code> を返す。</p>
+
 <h4>サブ目標 18: <code>bind</code> による <code>if_expr</code> の書き換え</h4>
 <pre>
 (* if_expr : input -&gt; (exp * input) option *)
@@ -948,7 +973,10 @@ let rec if_expr input =
     )
   ) input
 </pre>
-<p><code>match</code> と <code>None</code> の反復は消えたが、今度は <code>bind</code> と <code>fun ... -&gt;</code> の入れ子が深くなった。処理は順番にパーサを実行しているだけなのに、閉じ括弧が右側へ重なり、流れを追いにくい。</p>
+
+<p>このように、パース失敗時に <code>None</code> を返す処理と、残りの入力を次のパーサへ渡す処理は、<code>bind</code> の中に隠蔽された。そのため、以前の実装にあった <code>match ... with</code> の繰り返しはなくなっている。</p>
+
+<p>しかし、<code>match</code> と <code>None</code> の反復は消えたが、今度は <code>bind</code> と <code>fun ... -&gt;</code> の入れ子が深くなった。処理は順番にパーサを実行しているだけなのに、閉じ括弧が右側へ重なり、流れを追いにくい。</p>
 <h4>サブ目標 19: 束縛演算子 <code>let*</code> の導入</h4>
 <pre>
 (* let* : (input -&gt; ('a * input) option) -&gt;
