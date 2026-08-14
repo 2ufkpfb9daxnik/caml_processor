@@ -239,16 +239,6 @@ chars_of_string "12+3"
 リストに対するパターンマッチを使う。
 </p>
 
-<pre>
-match input with
-| c :: cs -&gt;
-    (* c  は先頭の1文字
-       cs はまだ読み取っていない残りの文字リスト *)
-    ...
-| [] -&gt;
-    (* 入力をすべて読み終えた *)
-    ...
-</pre>
 <h4>サブ目標 2: 1文字を処理する</h4>
 「入力された文字列の先頭から、条件に合う1文字だけを読み取る」という処理は、以下の2つのミニ目標を組み合わせることで実現できる。
 
@@ -267,7 +257,11 @@ match input with
 (* satisfy : (char -&gt; bool) -&gt; input -&gt; (char * input) option *)
 let satisfy cond input =
   match input with
-  | c :: cs when cond c -&gt; Some (c, cs)
+  | c :: cs -&gt; 
+    if cond c then
+      Some (c, cs)
+    else
+      None
   | _ -&gt; None
 
 (* ミニ目標 2-2: 特定の1文字を読む *)

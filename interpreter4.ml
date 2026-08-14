@@ -5,6 +5,18 @@ type input = char list
 let chars_of_string s = 
   List.of_seq (String.to_seq s)
 
+(* 条件condを満たすなら、次の1文字を読み取る *)
+(* satisfy: (char -> bool) -> input -> (char * input) option *)
+let satisfy cond input = 
+  match input with
+  | c :: cs when cond c -> Some (c, cs)
+  | _ -> None
+
+(* char_p: char -> input -> (char * input) option *)
+
+
+
+
 
 
 
