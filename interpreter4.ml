@@ -13,7 +13,8 @@ let satisfy cond input =
   | _ -> None
 
 (* char_p: char -> input -> (char * input) option *)
-
+let char_p c input =
+  satisfy (fun x -> x = c) input
 
 
 

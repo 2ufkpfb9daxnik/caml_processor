@@ -260,14 +260,6 @@ let satisfy cond input =
   | c :: cs when cond c -&gt; Some (c, cs)
   | _ -&gt; None
 
-(* ミニ目標 2-2: 特定の1文字を読む *)
-(* 入力: 読み取りたい文字 c と 文字リスト (input) *)
-(* 出力: 先頭が c なら Some(c, 残りの文字リスト)、それ以外なら None *)
-(* char_p : char -&gt; input -&gt; (char * input) option *)
-let char_p c input =
-  satisfy (fun x -&gt; x = c) input
-</pre>
-
 <p>
 パターンの後ろに書かれている <code>when</code> は、
 そのパターンに追加の条件を付けるための構文であり、
@@ -289,6 +281,16 @@ let char_p c input =
 </p>
 
 <code>satisfy</code> は汎用的な関数である。引数として「文字を受け取って真偽値を返す関数（<code>cond</code>）」を受け取るため、後述の「数字かどうか」の判定など、様々な用途に使い回すことができる。
+
+(* ミニ目標 2-2: 特定の1文字を読む *)
+(* 入力: 読み取りたい文字 c と 文字リスト (input) *)
+(* 出力: 先頭が c なら Some(c, 残りの文字リスト)、それ以外なら None *)
+(* char_p : char -&gt; input -&gt; (char * input) option *)
+let char_p c input =
+  satisfy (fun x -&gt; x = c) input
+</pre>
+
+<p>satisfyに渡す関数は、与えられた条件をチェックするための関数である。今回の条件は、<code>fun x -> x = c</code> であり、これは文字 <code>x</code> が指定された文字 <code>c</code> と等しいかどうかを判定する。</p>
 
 <h4>サブ目標 3: 不要な文字を読み飛ばす</h4>
 プログラムの意味に影響を与えない空白文字（スペースや改行など）を処理する。これはこれ以上分割せず、1つの関数として実装する。
