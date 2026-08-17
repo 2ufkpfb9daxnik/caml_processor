@@ -197,6 +197,7 @@ List.of_seq : char Seq.t -&gt; char list
 </p>
 
 <pre>
+(* stringで受け取ったソースコード列をinput型(stringのリスト)に変換する *)
 (* chars_of_string : string -&gt; input *)
 let chars_of_string s =
   List.of_seq (String.to_seq s)
@@ -250,15 +251,13 @@ chars_of_string "12+3"
 </ul>
 
 <pre>
-
-(* ミニ目標 2-1: 条件を満たす1文字を読む *)
-(* 入力: 条件関数 cond (char -&gt; bool) と 文字リスト (input) *)
-(* 出力: 条件を満たせば Some(読み取った文字, 残りの文字リスト)、満たさなければ None *)
+(* 条件condを満たすなら、次の1文字を読み取る *)
 (* satisfy : (char -&gt; bool) -&gt; input -&gt; (char * input) option *)
 let satisfy cond input =
   match input with
   | c :: cs when cond c -&gt; Some (c, cs)
   | _ -&gt; None
+</pre>
 
 <p>
 パターンの後ろに書かれている <code>when</code> は、
@@ -282,9 +281,8 @@ let satisfy cond input =
 
 <code>satisfy</code> は汎用的な関数である。引数として「文字を受け取って真偽値を返す関数（<code>cond</code>）」を受け取るため、後述の「数字かどうか」の判定など、様々な用途に使い回すことができる。
 
-(* ミニ目標 2-2: 特定の1文字を読む *)
-(* 入力: 読み取りたい文字 c と 文字リスト (input) *)
-(* 出力: 先頭が c なら Some(c, 残りの文字リスト)、それ以外なら None *)
+<pre>
+(* 指定した文字cと一致するかどうかを判定する *)
 (* char_p : char -&gt; input -&gt; (char * input) option *)
 let char_p c input =
   satisfy (fun x -&gt; x = c) input
@@ -301,9 +299,7 @@ let char_p c input =
 </ul>
 
 <pre>
-(* ミニ目標 3-1: 空白の読み飛ばし *)
-(* 入力: 文字リスト (input) *)
-(* 出力: 先頭の連続する空白を取り除いた残りの文字リスト *)
+(* スペースを飛ばす *)
 (* skip_spaces : input -&gt; input *)
 let rec skip_spaces input =
   match input with
@@ -324,14 +320,14 @@ let rec skip_spaces input =
 </ul>
 
 <pre>
-(* ミニ目標 4-1: 整数の切り出し *)
-(* 入力: 文字リスト (input) *)
-(* 出力: 数字が1つ以上あれば Some(変換された整数, 残りの文字リスト)、なければ None *)
+(* 数字の列が続く限り、束ねて整数に変換する *)
 (* int_p : input -&gt; (int * input) option *)
 let int_p input =
-  let is_digit c = c &gt;= '0' &amp;&amp; c &lt;= '9' in
+  let is_digit c =
+    c &gt;= '0' &amp;&amp; c &lt;= '9' in
   
-  (* 補助関数 read_digits: 数字が続く限り、acc（アキュムレータ）に文字を溜め込む *)
+  (* 補助関数、数字が続く限り、acc（アキュムレータ）に文字を溜め込む *)
+  (* read_digits : input -> char list -> char list * input *)
   let rec read_digits chars acc =
     match chars with
     | c :: cs when is_digit c -&gt; read_digits cs (c :: acc)
@@ -357,9 +353,7 @@ let int_p input =
 最後に <code>List.rev</code> を使って <code>acc</code> を逆順（<code>['1'; '2']</code>）に戻すことで、正しい数字の並びを取得している。
 
 <pre>
-(* ミニ目標 4-2: 特定のキーワードや記号の切り出し *)
-(* 入力: 探したいキーワード kw (string) と 文字リスト (input) *)
-(* 出力: 先頭が kw と一致すれば Some(kw, 残りの文字リスト)、しなければ None *)
+(* +や*といった指定された文字と、入力の先頭が一致するか確認し、一致したら、その文字をトークンとして返す *)
 (* keyword_p : string -&gt; input -&gt; (string * input) option *)
 let keyword_p kw input =
   
@@ -379,7 +373,7 @@ let keyword_p kw input =
 
 ここまでに定義した関数群だけで、<code>eval1</code> で扱う構文（整数、<code>+</code>、<code>*</code>）を文字リストからトークンとして切り出すための部品はすべて揃っている。この後作成する構文解析器（parser）は、これらの関数を呼び出して結果を繋ぎ合わせるだけで構成できる。
 
-<h2>課題 4-2-1 (字句解析器の拡張)</h2>
+<h2>課題 4-2-1 (字句解析器の確認)</h2>
 <ul>
 <li> 上記で作成した字句解析のプログラム（<code>keyword_p</code> 等）を利用して、「引き算 (<code>-</code>)」と「割り算 (<code>/</code>)」の記号がトークンとして正しく切り出せるか、手元の環境で実行して確認しなさい。
 </ul>
@@ -402,6 +396,8 @@ let test4 = keyword_p "*" ['*'] ;;
 (* 期待される出力: None （文字列全体が足りない） *)
 let test5 = keyword_p "let" ['l'; 'e'] ;;
 </pre>
+
+<p>当然、「足し算(<code>+</code>)」や「かけ算(<code>*</code>)」も同様に確認できる。いくつか例を作ってみること。</p>
 
 <h3>構文解析器 (parser) の実装方針</h3>
 
