@@ -21,6 +21,36 @@
 <li><b>構文解析器 (parser)</b>：字句解析の結果を利用して、完成した構文木（AST）と、まだ処理していない残りの文字列のペアを出力する。</li>
 </ul>
 
+<p>
+一般的な構文解析では、まず字句解析器が入力された文字列全体を読み取り、整数、識別子、予約語、演算子などからなるトークン列へ変換する。その後、構文解析器が完成したトークン列を先頭から読み取り、抽象構文木を組み立てる。つまり、字句解析と構文解析を別々の段階として実行する。
+</p>
+
+<pre>
+入力文字列
+  ↓ 字句解析器
+トークン列
+  ↓ 構文解析器
+抽象構文木
+</pre>
+
+<p>
+一方、本章では、入力文字列全体をあらかじめトークン列へ変換しない。構文解析器が整数や演算子などを必要とするたびに、入力の先頭から対応する文字を読み取る関数を呼び出す。例えば、整数が必要な場所では <code>int_p</code> を呼び、予約語が必要な場所では <code>keyword_p</code> を呼び、記号が必要な場所では <code>symbol_p</code> を呼ぶ。
+</p>
+
+<pre>
+入力文字列
+  ↓
+構文解析器が必要な字句を一つ読み取る
+  ↓
+読み取った結果を使って構文木の一部を作る
+  ↓
+残りの入力について同じ処理を続ける
+</pre>
+
+<p>
+したがって、本章の <code>int_p</code>、<code>keyword_p</code>、<code>symbol_p</code> などは、入力全体をトークン列へ変換する独立した字句解析器ではなく、構文解析器の内部から必要に応じて呼び出される字句解析の部品である。字句を一つ読み取る処理と構文木を組み立てる処理を交互に進めることで、中間的なトークン列を作らずに、入力文字列から直接抽象構文木を構築する。
+</p>
+
 <h3>字句解析器 (lexer) の実装方針</h3>
 
 字句解析器は、入力された文字列をトークン（単語に相当する意味の塊）の列に分割する役割を持つ。これを実装するためには、以下のように小さな関数へと問題を分割する。
@@ -31,6 +61,8 @@
 <li> <b>不要な文字を読み飛ばす:</b> 上記を利用して、スペースや改行などの意味を持たない空白文字を連続して読み飛ばす機能を作る。
 <li> <b>意味のある塊（トークン）を切り出す:</b> 数字が連続していれば束ねて「整数」に変換し、<code>+</code> や <code>*</code> といった文字が来れば「特定のキーワードや記号」として認識して切り出す機能を作る。
 </ul>
+
+<p>ただし、前述の通り、本章の実装では、独立したトークン列を先にすべて作るのではなく、整数やキーワードを入力の先頭から切り出す小さな字句解析の関数を、構文解析器から直接呼び出す。したがって、以下で作成する <code>int_p</code> や <code>keyword_p</code> などは、構文解析器の内部で利用する字句解析の部品として位置付ける。</p>
 
 <h3>1. 字句解析器（lexer）の実装：最小単位からの組み立て</h3>
 
@@ -190,14 +222,12 @@ List.of_seq : char Seq.t -&gt; char list
 </pre>
 
 <p>
-
-<p>
 以上をまとめて、文字列をパーサの入力へ変換する
 <code>chars_of_string</code> を次のように定義する。
 </p>
 
 <pre>
-(* stringで受け取ったソースコード列をinput型(stringのリスト)に変換する *)
+(* stringで受け取ったソースコード列をinput型(charのリスト)に変換する *)
 (* chars_of_string : string -&gt; input *)
 let chars_of_string s =
   List.of_seq (String.to_seq s)
@@ -348,56 +378,95 @@ let int_p input =
 <li> <code>read_digits ['1'; '2'; '+'] []</code> が呼ばれる。</li>
 <li> <code>'1'</code> は数字なので、<code>acc</code> に追加して再帰: <code>read_digits ['2'; '+'] ['1']</code></li>
 <li> <code>'2'</code> は数字なので、<code>acc</code> に追加して再帰: <code>read_digits ['+'] ['2'; '1']</code></li>
-<li> <code>'+'</code> は数字ではないので終了。結果として <code>(['2'; '1'], ['+'])</code> が返る。</li>
+<li> <code>'+'</code> は数字ではないので終了。この時点で <code>acc</code> は <code>['2'; '1']</code> である。<code>List.rev acc</code> によって順序を戻してから、<code>(['1'; '2'], ['+'])</code> が返る。</li>
 </ol>
-最後に <code>List.rev</code> を使って <code>acc</code> を逆順（<code>['1'; '2']</code>）に戻すことで、正しい数字の並びを取得している。
+終了時に <code>List.rev</code> を使って <code>acc</code> を逆順（<code>['1'; '2']</code>）に戻すことで、正しい数字の並びを取得している。
 
 <pre>
-(* +や*といった指定された文字と、入力の先頭が一致するか確認し、一致したら、その文字をトークンとして返す *)
-(* keyword_p : string -&gt; input -&gt; (string * input) option *)
-let keyword_p kw input =
+(* 指定された文字列と入力の先頭が一致するか確認する *)
+(* string_p : string -&gt; input -&gt; (string * input) option *)
+let string_p expected input =
   
   (* 補助関数 check_chars: targetの文字リストと、現在の入力charsが順番に一致するか確認する *)
+  (* check_chars : input -&gt; char list -&gt; (string * input) option *)
   let rec check_chars chars target =
     match target with
-    | [] -&gt; Some (kw, chars) (* 探したい文字(target)を全て読み終えたら、一致したとみなして成功 *)
+    | [] -&gt; Some (expected, chars)
     | t :: ts -&gt;
         (match char_p t chars with
-         | Some (_, rest) -&gt; check_chars rest ts (* 1文字一致したので、残りを再帰的に確認する *)
-         | None -&gt; None) (* 途中で一致しない文字があったら失敗 *)
+         | Some (_, rest) -&gt; check_chars rest ts
+         | None -&gt; None)
   in
-  
-  (* 探したい文字列 kw を文字のリストに変換してから check_chars に渡す *)
-  check_chars input (List.of_seq (String.to_seq kw))
+  check_chars input (chars_of_string expected)
+
+(* +、*、-&gt; などの記号を読む *)
+(* symbol_p : string -&gt; input -&gt; (string * input) option *)
+let symbol_p symbol input =
+  string_p symbol input
+
+(* 識別子の続きを構成できる文字かを判定する *)
+(* is_ident_letter : char -&gt; bool *)
+let is_ident_letter c =
+  (c &gt;= 'a' &amp;&amp; c &lt;= 'z')
+  || (c &gt;= 'A' &amp;&amp; c &lt;= 'Z')
+  || (c &gt;= '0' &amp;&amp; c &lt;= '9')
+  || c = '_'
+
+(* if、then、true などの予約語を読む。識別子の途中には一致させない *)
+(* keyword_p : string -&gt; input -&gt; (string * input) option *)
+let keyword_p keyword input =
+  match string_p keyword input with
+  | None -&gt; None
+  | Some (_, c :: _) when is_ident_letter c -&gt; None
+  | Some (_, rest) -&gt; Some (keyword, rest)
 </pre>
 
 ここまでに定義した関数群だけで、<code>eval1</code> で扱う構文（整数、<code>+</code>、<code>*</code>）を文字リストからトークンとして切り出すための部品はすべて揃っている。この後作成する構文解析器（parser）は、これらの関数を呼び出して結果を繋ぎ合わせるだけで構成できる。
 
 <h2>課題 4-2-1 (字句解析器の確認)</h2>
-<ul>
-<li> 上記で作成した字句解析のプログラム（<code>keyword_p</code> 等）を利用して、「引き算 (<code>-</code>)」と「割り算 (<code>/</code>)」の記号がトークンとして正しく切り出せるか、手元の環境で実行して確認しなさい。
-</ul>
-
-<p><b>テスト・データ:</b></p>
-以下のコードを OCaml 環境に入力し、それぞれコメントに記載された期待される出力（<code>Some</code> と <code>None</code>）が得られるか確認すること。
+<p>ここまでに作成した字句解析の部品を、通常のソースコードと同じ <code>string</code> 型の入力からまとめて確認する。そのために、整数と記号を同じ型で表す、確認用の <code>lexeme</code> 型を定義する。</p>
 <pre>
-(* 期待される出力: Some ("-", ['1'; '2']) *)
-let test1 = keyword_p "-" ['-'; '1'; '2'] ;;
+type lexeme =
+  | IntLexeme of int
+  | SymbolLexeme of string
 
-(* 期待される出力: Some ("/", [' '; '3']) *)
-let test2 = keyword_p "/" ['/'; ' '; '3'] ;;
+(* lex_one_chars : input -&gt; (lexeme * input) option *)
+let lex_one_chars input =
+  let input = skip_spaces input in
+  match int_p input with
+  | Some (n, rest) -&gt; Some (IntLexeme n, rest)
+  | None -&gt;
+      (match symbol_p "+" input with
+       | Some (s, rest) -&gt; Some (SymbolLexeme s, rest)
+       | None -&gt;
+           match symbol_p "*" input with
+           | Some (s, rest) -&gt; Some (SymbolLexeme s, rest)
+           | None -&gt; None)
 
-(* 期待される出力: None （先頭が + なので - には一致しない） *)
-let test3 = keyword_p "-" ['+'; '1'; '2'] ;;
-
-(* 期待される出力: Some ("*", []) *)
-let test4 = keyword_p "*" ['*'] ;;
-
-(* 期待される出力: None （文字列全体が足りない） *)
-let test5 = keyword_p "let" ['l'; 'e'] ;;
+(* lex_one : string -&gt; (lexeme * input) option *)
+let lex_one source =
+  lex_one_chars (chars_of_string source)
 </pre>
+<p><code>lex_one</code> は、<code>chars_of_string</code> で文字列を文字リストへ変換し、<code>skip_spaces</code> で先頭の空白を読み飛ばした後、<code>int_p</code> または <code>symbol_p</code> を使って字句を一つ読み取る。この関数によって、サブ目標1から4までの処理が一連の流れとして接続されていることを確認できる。</p>
+<p><b>テスト・データ:</b></p>
+<pre>
+(* 期待される出力: Some (IntLexeme 12, [' '; '+'; ' '; '3']) *)
+let test1 = lex_one "12 + 3" ;;
 
-<p>当然、「足し算(<code>+</code>)」や「かけ算(<code>*</code>)」も同様に確認できる。いくつか例を作ってみること。</p>
+(* 期待される出力: Some (IntLexeme 42, [' '; '*'; ' '; '2']) *)
+let test2 = lex_one "   42 * 2" ;;
+
+(* 期待される出力: Some (SymbolLexeme "+", [' '; '3']) *)
+let test3 = lex_one "+ 3" ;;
+
+(* 期待される出力: Some (SymbolLexeme "*", ['1'; '0']) *)
+let test4 = lex_one "*10" ;;
+
+(* 期待される出力: None *)
+let test5 = lex_one "@ 3" ;;
+</pre>
+<p>さらに、<code>lex_one_chars</code> を拡張し、引き算（<code>-</code>）と割り算（<code>/</code>）も <code>SymbolLexeme</code> として読み取れるようにしなさい。</p>
+<p>なお、以後の構文解析器では、確認用の <code>lexeme</code> の列を先に作るのではなく、<code>int_p</code>、<code>symbol_p</code>、<code>keyword_p</code> を必要な位置で直接呼び出す。<code>lex_one</code> は、ここまでの字句解析の部品を統合して確認するためのエントリーポイントである。</p>
 
 <h3>構文解析器 (parser) の実装方針</h3>
 
@@ -488,7 +557,7 @@ let rec times_expr input =
 補助関数 <code>parse_rest</code> の中で <code>*</code> が続くかを確認し、続く場合は右辺として再度 <code>primary_expr</code> を呼び出し構文木（<code>e2</code>）を取得する。
 <pre>
         (* parse_rest の内部処理 *)
-        match keyword_p "*" r with
+        match symbol_p "*" r with
         | None -&gt; 
             (* "*" が無ければ終了。これ以上かけ算は続かない *)
             Some (current_e, current_rest)
@@ -523,7 +592,7 @@ let rec times_expr input =
   | Some (e1, rest1) -&gt;
       let rec parse_rest current_e current_rest =
         let r = skip_spaces current_rest in
-        match keyword_p "*" r with
+        match symbol_p "*" r with
         | Some (_, rest2) -&gt;
             (match primary_expr rest2 with
              | Some (e2, rest3) -&gt; 
@@ -544,7 +613,7 @@ let rec plus_expr input =
       let rec parse_rest current_e current_rest =
         let r = skip_spaces current_rest in
         (* 演算子(+)の確認と右辺(times_expr)の読み取り *)
-        match keyword_p "+" r with
+        match symbol_p "+" r with
         | Some (_, rest2) -&gt;
             (match times_expr rest2 with
              | Some (e2, rest3) -&gt; 
@@ -609,7 +678,7 @@ let test1 = parse "2 - 3" ;;
 (* eval1 の結果: 2 *)
 let test2 = parse "6 / 3" ;;
 
-(* 期待されるAST: Times(IntLit 1, Minus(IntLit 5, IntLit 3)) *)
+(* 期待されるAST: Minus(Times(IntLit 1, IntLit 5), IntLit 3) *)
 (* eval1 の結果: 2 *)
 let test3 = parse "1 * 5 - 3" ;;  (* ※引き算よりかけ算が先に結合されるか注意 *)
 
@@ -662,7 +731,7 @@ type exp =
 新しい構文を読み取るにあたり、字句解析器に新しい関数を追加する必要があるだろうか？
 実は、<b>追加する必要はない。</b>
 
-すでに作成した <code>keyword_p</code> は、「指定した文字列と一致するか」を判定する汎用的な関数である。したがって、<code>keyword_p "true"</code> や <code>keyword_p "="</code> と呼び出すだけで、真理値や比較演算子も独立したトークンとして簡単に切り出すことができる。これが、問題を小さな関数に分割して組み立てる手法（モジュール化という）の大きな利点である。
+すでに作成した <code>keyword_p</code> は、「指定した文字列と一致するか」を判定する汎用的な関数である。したがって、<code>keyword_p "true"</code> や <code>symbol_p "="</code> と呼び出すだけで、真理値や比較演算子も独立したトークンとして簡単に切り出すことができる。これが、問題を小さな関数に分割して組み立てる手法（モジュール化という）の大きな利点である。
 
 <h4>サブ目標 10: 構文解析器の基本要素（葉）の拡張</h4>
 字句解析の準備ができているので、さっそく構文解析器を拡張する。まずは一番優先度が高く、ASTの末端（葉）となる <code>primary_expr</code> に真理値を追加する。
@@ -723,7 +792,7 @@ let rec comp_expr input =
       let r = skip_spaces rest1 in
       
       (* ミニ目標 11-2: "=" の確認と右辺の読み取り *)
-      (match keyword_p "=" r with
+      (match symbol_p "=" r with
        | Some (_, rest2) -&gt;
            (match plus_expr rest2 with
             | Some (e2, rest3) -&gt; Some (Eq (e1, e2), rest3)
@@ -903,6 +972,29 @@ let parse s =
 
 これで、条件分岐を持つ本格的なプログラムの構文解析ができるようになった。
 
+<h4>サブ目標 16: 括弧で囲まれた式の追加</h4>
+<p><code>if</code> 式のテストでは <code>1 * (2 + 3)</code> のような括弧を使用する。そのため、括弧の処理を発展課題ではなく、ここで正式に <code>primary_expr</code> へ追加する。</p>
+<ul>
+<li> <b>ミニ目標 16-1: 開き括弧、内部の式、閉じ括弧の読み取り</b><br>
+<code>(</code> を読み、その内部を <code>if_expr</code> で解析した後、<code>)</code> を読む。括弧そのものに対応するASTは作らず、内部の式をそのまま返す。
+</ul>
+<pre>
+(* paren_expr : input -&gt; (exp * input) option *)
+let rec paren_expr input =
+  let input = skip_spaces input in
+  match symbol_p "(" input with
+  | None -&gt; None
+  | Some (_, rest1) -&gt;
+      (match if_expr rest1 with
+       | None -&gt; None
+       | Some (e, rest2) -&gt;
+           let rest2 = skip_spaces rest2 in
+           match symbol_p ")" rest2 with
+           | Some (_, rest3) -&gt; Some (e, rest3)
+           | None -&gt; None)
+</pre>
+<p><code>primary_expr</code> では、整数と真理値の解析に失敗した後で <code>paren_expr</code> を試す。<code>paren_expr</code> は <code>if_expr</code> を呼び、<code>if_expr</code> は最終的に <code>primary_expr</code> を呼ぶため、実際のOCamlコードでは関係する関数を <code>let rec ... and ...</code> で相互再帰として定義する。</p>
+
 <h2>課題 4-2-4 (if式のパースと動作確認)</h2>
 
 これまでに実装した字句解析器と構文解析器のすべてのコードを統合し、手元の OCaml 環境で確認しなさい。
@@ -920,7 +1012,7 @@ let test2 = parse "if 2 = 1 then 1 * 2 else 1 * (2 + 3)" ;;
 (* （※if式の中にさらにif式が含まれるネストされた条件分岐） *)
 let test3 = parse "if 0 &lt; 10 then if false then 3 else 4 else 5" ;;
 </pre>
-（※ <code>test2</code> で括弧 <code>(2 + 3)</code> が登場しているが、もし <code>primary_expr</code> に括弧の処理が含まれていない場合は、エラーになる。時間があれば <code>primary_expr</code> を拡張し、<code>"("</code> を読んだら <code>if_expr</code> を呼び出し、その後に <code>")"</code> を読むような処理を追加してみよ。）
+（※ <code>test2</code> の括弧は、サブ目標16で追加した <code>paren_expr</code> によって解析される。）
 
 <h3>5. 高階関数の導入とパーサコンビネータによる構文解析</h3>
 <p>前節で <code>if</code> 式のパースを実装したが、<code>match</code> 式の中に <code>match</code> 式が入る「入れ子」が深くなり、冗長なコードとなってしまった。
@@ -949,6 +1041,12 @@ let bind p f =
 (* return : 'a -&gt; input -&gt; ('a * input) option *)
 let return v =
   fun input -&gt; Some (v, input)
+
+(* token : (input -&gt; ('a * input) option) -&gt;
+           input -&gt; ('a * input) option *)
+let token p =
+  bind p (fun v -&gt;
+    fun input -&gt; Some (v, skip_spaces input))
 </pre>
 
 <p>ここでわかるように、<code>bind</code> の第2引数 <code>f</code> は、<b>関数</b>である。<code>p</code> が成功した場合だけ、読み取った値 <code>v</code> を <code>f</code> に渡して次のパースへ進む。一方、<code>p</code> が失敗した場合は、後続の処理を実行せずに <code>None</code> を返す。</p>
@@ -1039,7 +1137,7 @@ let rec plus_expr input =
    
    (* アキュムレータを用いた再帰関数も、let* と &lt;|&gt; で書ける *)
    let rec parse_rest current_e =
-     (let* _  = token (keyword_p "+") in
+     (let* _  = token (symbol_p "+") in
       let* e2 = times_expr in
       let new_e = Plus (current_e, e2) in
       parse_rest new_e)
@@ -1052,7 +1150,7 @@ let rec plus_expr input =
 let rec comp_expr input =
   (let* e1 = plus_expr in
    
-   (let* _  = token (keyword_p "=") in
+   (let* _  = token (symbol_p "=") in
     let* e2 = plus_expr in
     return (Eq (e1, e2)))
    &lt;|&gt; return e1) (* "=" が無ければ左辺 e1 をそのまま返す *)
@@ -1078,28 +1176,28 @@ let rec comp_expr input =
 この追加において注意すべき点は、<b>字句解析におけるキーワード（予約語）と変数名の衝突</b>である。例えば、<code>if</code> という文字列が変数名として扱われると、意図した通りにパースできなくなる。この問題を解決する手順を含め、これまでと同様に全体をサブ目標に分割して実装を進める。
 
 <ul>
-<li> <b>サブ目標 19: 抽象構文木（AST）の拡張</b><br>
+<li> <b>サブ目標 20: 抽象構文木（AST）の拡張</b><br>
 変数と <code>let</code> 式を表現できるように、<code>exp</code> 型を拡張する。</li>
-<li> <b>サブ目標 20: 字句解析器の拡張（識別子と予約語の分離）</b><br>
+<li> <b>サブ目標 21: 字句解析器の拡張（識別子と予約語の分離）</b><br>
 変数名として使える文字列（識別子）を切り出しつつ、それが <code>if</code> や <code>let</code> などの「予約語」でないことを確認するパーサを作成する。</li>
-<li> <b>サブ目標 21: 構文解析器の基本要素（葉）の拡張</b><br>
+<li> <b>サブ目標 22: 構文解析器の基本要素（葉）の拡張</b><br>
 ASTの末端となる <code>primary_expr</code> を拡張し、変数をパースできるようにする。</li>
-<li> <b>サブ目標 22: <code>let</code> 式のパースとエントリーポイントの統合</b><br>
+<li> <b>サブ目標 23: <code>let</code> 式のパースとエントリーポイントの統合</b><br>
 <code>let</code> 式のパーサを作成し、優先順位の低いトップレベルの式として <code>if</code> 式と並列にパースできるように全体を統合する。</li>
 </ul>
 
 それでは、それぞれのサブ目標について具体的な実装を見ていこう。
 
-<h4>サブ目標 19: 抽象構文木（AST）の拡張</h4>
+<h4>サブ目標 20: 抽象構文木（AST）の拡張</h4>
 新しく追加する要素を表現できるように <code>exp</code> 型を拡張する。
 
 <ul>
-<li> <b>ミニ目標 19-1: <code>Var</code> と <code>Let</code> の追加</b><br>
+<li> <b>ミニ目標 20-1: <code>Var</code> と <code>Let</code> の追加</b><br>
 変数を表す <code>Var of string</code> と、<code>let</code> 式を表す <code>Let of string * exp * exp</code> を追加する。
 </ul>
 
 <pre>
-(* ミニ目標 19-1: ASTの拡張 *)
+(* ミニ目標 20-1: ASTの拡張 *)
 type exp =
   | IntLit of int
   | BoolLit of bool
@@ -1112,22 +1210,22 @@ type exp =
   | Let of string * exp * exp       (* 追加: let x = e1 in e2 *)
 </pre>
 
-<h4>サブ目標 20: 字句解析器の拡張（識別子と予約語の分離）</h4>
+<h4>サブ目標 21: 字句解析器の拡張（識別子と予約語の分離）</h4>
 変数名（識別子）のパース処理を作成する。ここでは、変数名の最初の1文字はアルファベット、2文字目以降はアルファベット、数字、アンダースコア（<code>_</code>）の連続であるとする。
 
 <ul>
-<li> <b>ミニ目標 20-1: 文字種の判定関数の用意</b><br>
+<li> <b>ミニ目標 21-1: 文字種の判定関数の用意</b><br>
 文字がアルファベットであるか、あるいは英数字・アンダースコアであるかを判定する関数を用意する。
-<li> <b>ミニ目標 20-2: 識別子の切り出しと予約語チェック (<code>ident_p</code>)</b><br>
+<li> <b>ミニ目標 21-2: 識別子の切り出しと予約語チェック (<code>ident_p</code>)</b><br>
 先頭がアルファベットであれば文字の読み取りを開始し、続く英数字を束ねて文字列にする。<b>その後、得られた文字列が予約語リストに含まれていないかチェックし、含まれていればパース失敗（<code>None</code>）とする。</b>
 </ul>
 
 <pre>
-(* ミニ目標 20-1: 文字種の判定関数 *)
+(* ミニ目標 21-1: 文字種の判定関数 *)
 let is_alpha c = (c &gt;= 'a' &amp;&amp; c &lt;= 'z') || (c &gt;= 'A' &amp;&amp; c &lt;= 'Z')
 let is_alnum c = is_alpha c || (c &gt;= '0' &amp;&amp; c &lt;= '9') || c = '_'
 
-(* ミニ目標 20-2: 識別子（変数名）のパースと予約語チェック *)
+(* ミニ目標 21-2: 識別子（変数名）のパースと予約語チェック *)
 (* 入力: 文字リスト (input) *)
 (* 出力: 予約語以外の識別子が読めれば Some(変数名の文字列, 残りの文字リスト)、失敗すれば None *)
 (* ident_p : input -&gt; (string * input) option *)
@@ -1146,7 +1244,7 @@ let ident_p input =
       let str = String.of_seq (List.to_seq alnums) in
       
       (* 予約語（キーワード）のリスト *)
-      let reserved = ["let"; "in"; "if"; "then"; "else"; "true"; "false"] in
+      let reserved = ["let"; "rec"; "in"; "if"; "then"; "else"; "fun"; "true"; "false"; "match"; "with"] in
       
       if List.mem str reserved then
         None (* 読み取った文字列が予約語だった場合は、変数名としてはパース失敗とする *)
@@ -1157,16 +1255,16 @@ let ident_p input =
 </pre>
 予約語を除外しないと、<code>if true then 1 else 2</code> の <code>if</code> を変数として誤認し、正しくパースできなくなる。これは言語処理系において一般的な手順である。
 
-<h4>サブ目標 21: 構文解析器の基本要素（葉）の拡張</h4>
+<h4>サブ目標 22: 構文解析器の基本要素（葉）の拡張</h4>
 字句解析の <code>ident_p</code> を利用し、ASTの末端となる <code>primary_expr</code> を拡張して変数をパースできるようにする。前節の方針通り、<code>let*</code> 構文と選択実行のコンビネータ <code>&lt;|&gt;</code> を組み合わせて記述する。
 
 <ul>
-<li> <b>ミニ目標 21-1: 変数のパース処理の追加</b><br>
+<li> <b>ミニ目標 22-1: 変数のパース処理の追加</b><br>
 <code>primary_expr</code> の選択肢の末尾に、<code>ident_p</code> を用いたパース処理を追加する。
 </ul>
 
 <pre>
-(* ミニ目標 21-1: 変数(Var)の追加 *)
+(* ミニ目標 22-1: 変数(Var)の追加 *)
 let rec primary_expr input =
   ( (let* n = token int_p in return (IntLit n))
     &lt;|&gt; 
@@ -1179,29 +1277,29 @@ let rec primary_expr input =
   input
 </pre>
 
-<h4>サブ目標 22: <code>let</code> 式のパースとエントリーポイントの統合</h4>
+<h4>サブ目標 23: <code>let</code> 式のパースとエントリーポイントの統合</h4>
 次に <code>let x = e1 in e2</code> をパースする処理を作成する。
 <code>let</code> 式も <code>if</code> 式と同様に優先順位が低い構文である。そこで、構文解析のトップレベルの関数を <code>expr</code> という名前に統一し、<code>let</code> と <code>if</code> の両方を組み込む。
 
 <ul>
-<li> <b>ミニ目標 22-1: <code>let_expr</code> の実装</b><br>
+<li> <b>ミニ目標 23-1: <code>let_expr</code> の実装</b><br>
 <code>let*</code> を使い、<code>let</code>、変数名（<code>x</code>）、<code>=</code>、式（<code>e1</code>）、<code>in</code>、式（<code>e2</code>）を順に読み取る。
-<li> <b>ミニ目標 22-2: トップレベルの統合と <code>parse</code> の更新</b><br>
+<li> <b>ミニ目標 23-2: トップレベルの統合と <code>parse</code> の更新</b><br>
 トップレベルのパーサ <code>expr</code> を新設し、<code>let</code> 式、<code>if</code> 式、比較式（<code>comp_expr</code>）の順にパースを試すようにする。
 </ul>
 
 <pre>
 (* 相互再帰的に呼び出すため、トップレベルを let rec expr ... and ... で繋ぐ *)
 
-(* ミニ目標 22-2: トップレベルの統合パーサ *)
+(* ミニ目標 23-2: トップレベルの統合パーサ *)
 let rec expr input =
   (let_expr &lt;|&gt; if_expr &lt;|&gt; comp_expr) input
 
-(* ミニ目標 22-1: let 式のパース *)
+(* ミニ目標 23-1: let 式のパース *)
 and let_expr input =
   (let* _  = token (keyword_p "let") in
    let* x  = token ident_p in          (* 変数名 x を読む *)
-   let* _  = token (keyword_p "=") in
+   let* _  = token (symbol_p "=") in
    let* e1 = expr in                   (* 束縛される式 e1 を読む *)
    let* _  = token (keyword_p "in") in
    let* e2 = expr in                   (* 続く本体の式 e2 を読む *)
@@ -1277,16 +1375,16 @@ let test4 = parse "let let = 1 in let + 1" ;;
 <h3>8. 関数の構文解析</h3>
 <p>ここまでに作成したパーサを、無名関数、関数適用、名前付き関数定義、再帰関数へ拡張する。関数の構文には、括弧、優先順位、左結合、構文糖など複数の問題が含まれるため、これらを一つずつ分けて解決する。</p>
 <ul>
-<li><b>サブ目標 8-1: ASTの拡張</b></li>
-<li><b>サブ目標 8-2: 括弧で囲まれた式</b></li>
-<li><b>サブ目標 8-3: 関数適用</b></li>
-<li><b>サブ目標 8-4: 無名関数</b></li>
-<li><b>サブ目標 8-5: 名前付き関数定義</b></li>
-<li><b>サブ目標 8-6: 再帰関数</b></li>
-<li><b>サブ目標 8-7: 式全体への統合</b></li>
+<li><b>サブ目標 24: ASTの拡張</b></li>
+<li><b>サブ目標 25: 括弧で囲まれた式</b></li>
+<li><b>サブ目標 26: 関数適用</b></li>
+<li><b>サブ目標 27: 無名関数</b></li>
+<li><b>サブ目標 28: 名前付き関数定義</b></li>
+<li><b>サブ目標 29: 再帰関数</b></li>
+<li><b>サブ目標 30: 式全体への統合</b></li>
 </ul>
 
-<h4>サブ目標 8-1: ASTの拡張</h4>
+<h4>サブ目標 24: ASTの拡張</h4>
 <pre>
 type exp =
   ...
@@ -1296,32 +1394,32 @@ type exp =
 </pre>
 <p><code>Fun (x, body)</code> は仮引数 <code>x</code> と本体 <code>body</code> を持つ無名関数、<code>App (e1, e2)</code> は式 <code>e1</code> を式 <code>e2</code> へ適用する関数適用、<code>LetRec (f, x, e1, e2)</code> は <code>let rec f x = e1 in e2</code> を表す。</p>
 
-<h4>サブ目標 8-2: 括弧で囲まれた式</h4>
+<h4>サブ目標 25: 括弧で囲まれた式</h4>
 <p><code>f (x + 1)</code> や <code>(fun x -&gt; x + 1) 3</code> を扱うには、括弧で囲まれた式が必要である。括弧は構文木に新しい節点を作るものではなく、内部の式をそのまま返し、結合の仕方だけを変更する。</p>
 <ul>
-<li><b>ミニ目標 8-2-1:</b> 開き括弧 <code>(</code> を読む。</li>
-<li><b>ミニ目標 8-2-2:</b> 括弧の内部を <code>expr</code> で読む。</li>
-<li><b>ミニ目標 8-2-3:</b> 閉じ括弧 <code>)</code> を読み、内部の式を返す。</li>
+<li><b>ミニ目標 25-1:</b> 開き括弧 <code>(</code> を読む。</li>
+<li><b>ミニ目標 25-2:</b> 括弧の内部を <code>expr</code> で読む。</li>
+<li><b>ミニ目標 25-3:</b> 閉じ括弧 <code>)</code> を読み、内部の式を返す。</li>
 </ul>
 <pre>
 (* paren_expr : input -&gt; (exp * input) option *)
 let paren_expr input =
-  (let* _ = token (keyword_p "(") in
+  (let* _ = token (symbol_p "(") in
    let* e = expr in
-   let* _ = token (keyword_p ")") in
+   let* _ = token (symbol_p ")") in
    return e)
   input
 </pre>
 <p>2行目の <code>let* e = expr</code> が重要である。ここを <code>plus_expr</code> にすると、括弧内の <code>if</code>、<code>let</code>、<code>fun</code> を読めない。括弧の内部には任意の式が現れ得るため、最も一般的な入口である <code>expr</code> に処理を任せる。</p>
 <p><code>paren_expr</code> は <code>expr</code> を呼び、<code>expr</code> は最終的に <code>primary_expr</code> を通じて <code>paren_expr</code> を呼ぶ。そのため、実際に統合するときは、これらを <code>let rec ... and ...</code> による相互再帰として定義する。</p>
 
-<h4>サブ目標 8-3: 関数適用</h4>
+<h4>サブ目標 26: 関数適用</h4>
 <p>関数適用 <code>f x</code> には、<code>+</code> のような区切り記号がない。したがって、「基本式を一つ読んだ後、さらに基本式が続く間は引数として読む」という方針をとる。</p>
 <ul>
-<li><b>ミニ目標 8-3-1:</b> 関数の位置にある最初の <code>primary_expr</code> を読む。</li>
-<li><b>ミニ目標 8-3-2:</b> 次の <code>primary_expr</code> が読めたら <code>App</code> を作る。</li>
-<li><b>ミニ目標 8-3-3:</b> 引数が続く限り、作った <code>App</code> をアキュムレータとして繰り返す。</li>
-<li><b>ミニ目標 8-3-4:</b> 次の基本式がなければ、現在の構文木を返す。</li>
+<li><b>ミニ目標 26-1:</b> 関数の位置にある最初の <code>primary_expr</code> を読む。</li>
+<li><b>ミニ目標 26-2:</b> 次の <code>primary_expr</code> が読めたら <code>App</code> を作る。</li>
+<li><b>ミニ目標 26-3:</b> 引数が続く限り、作った <code>App</code> をアキュムレータとして繰り返す。</li>
+<li><b>ミニ目標 26-4:</b> 次の基本式がなければ、現在の構文木を返す。</li>
 </ul>
 <pre>
 (* app_expr : input -&gt; (exp * input) option *)
@@ -1361,7 +1459,7 @@ expr
 </pre>
 <p>これにより <code>f x * 2</code> は <code>Times (App (Var "f", Var "x"), IntLit 2)</code> となる。</p>
 
-<h4>サブ目標 8-4: 無名関数</h4>
+<h4>サブ目標 27: 無名関数</h4>
 <p>無名関数は、<code>fun</code>、仮引数、矢印、本体の4つを順番に読む。</p>
 <pre>
 (* fun_expr : input -&gt; (exp * input) option *)
@@ -1376,7 +1474,7 @@ let fun_expr input =
 <p><code>body</code> は <code>expr</code> で読む。例えば <code>fun x -&gt; x + 1</code> では、本体は <code>x</code> だけではなく <code>x + 1</code> 全体である。また、<code>fun x -&gt; if x = 0 then 1 else x</code> のように本体へ任意の式を置ける。</p>
 <p><code>-&gt;</code> は2文字からなる記号なので、<code>keyword_p "-&gt;"</code> でまとめて読む。将来 <code>-</code> と競合する場合も、長い記号を先に試す。</p>
 
-<h4>サブ目標 8-5: 名前付き関数定義</h4>
+<h4>サブ目標 28: 名前付き関数定義</h4>
 <p><code>let f x = e1 in e2</code> は独立した意味を持つ新構文として扱うこともできるが、既存の <code>let</code> と無名関数へ変換できる。</p>
 <pre>
 let f x = e1 in e2
@@ -1391,7 +1489,7 @@ let named_fun_expr input =
   (let* _ = token (keyword_p "let") in
    let* f = token ident_p in
    let* x = token ident_p in
-   let* _ = token (keyword_p "=") in
+   let* _ = token (symbol_p "=") in
    let* e1 = expr in
    let* _ = token (keyword_p "in") in
    let* e2 = expr in
@@ -1400,7 +1498,7 @@ let named_fun_expr input =
 </pre>
 <p>複数引数の <code>let add x y = x + y in e</code> は、<code>Fun ("x", Fun ("y", ...))</code> のように無名関数を入れ子にすれば表現できる。本文では1引数版を完成させ、複数引数版は課題とする。</p>
 
-<h4>サブ目標 8-6: 再帰関数</h4>
+<h4>サブ目標 29: 再帰関数</h4>
 <p>通常の <code>let</code> では、定義される関数自身をその本体から参照できない。そこで <code>let rec</code> を専用のASTとして読む。</p>
 <pre>
 (* let_rec_expr : input -&gt; (exp * input) option *)
@@ -1409,7 +1507,7 @@ let let_rec_expr input =
    let* _ = token (keyword_p "rec") in
    let* f = token ident_p in
    let* x = token ident_p in
-   let* _ = token (keyword_p "=") in
+   let* _ = token (symbol_p "=") in
    let* e1 = expr in
    let* _ = token (keyword_p "in") in
    let* e2 = expr in
@@ -1418,11 +1516,12 @@ let let_rec_expr input =
 </pre>
 <p><code>let rec</code> と通常の <code>let</code> は、どちらも <code>let</code> で始まる。選択肢を並べるときは、より具体的な <code>let_rec_expr</code> を先に試し、その後に通常の <code>let_expr</code> を試す。</p>
 
-<h4>サブ目標 8-7: 式全体への統合</h4>
+<h4>サブ目標 30: 式全体への統合</h4>
 <pre>
 (* expr : input -&gt; (exp * input) option *)
 let rec expr input =
-  (let_rec_expr
+  (match_expr
+   &lt;|&gt; let_rec_expr
    &lt;|&gt; named_fun_expr
    &lt;|&gt; let_expr
    &lt;|&gt; if_expr
@@ -1443,16 +1542,16 @@ let rec expr input =
 <h3>9. 組とリストの構文解析</h3>
 <p>例題には組が登場し、型の説明でも、組は異なる型の値をまとめられるデータとして扱われている。そこで、リストだけでなく組もここで実装する。組とリストはどちらも複数の式を並べるが、区切り記号と作る構文木が異なるため、別の小目標として扱う。</p>
 <ul>
-<li><b>サブ目標 9-1: ASTの拡張</b></li>
-<li><b>サブ目標 9-2: 単なる括弧と組の区別</b></li>
-<li><b>サブ目標 9-3: 空リスト</b></li>
-<li><b>サブ目標 9-4: リストリテラル</b></li>
-<li><b>サブ目標 9-5: 右結合の <code>::</code></b></li>
-<li><b>サブ目標 9-6: <code>List.hd</code> と <code>List.tl</code></b></li>
-<li><b>サブ目標 9-7: 優先順位への統合</b></li>
+<li><b>サブ目標 31: ASTの拡張</b></li>
+<li><b>サブ目標 32: 単なる括弧と組の区別</b></li>
+<li><b>サブ目標 33: 空リスト</b></li>
+<li><b>サブ目標 34: リストリテラル</b></li>
+<li><b>サブ目標 35: 右結合の <code>::</code></b></li>
+<li><b>サブ目標 36: <code>List.hd</code> と <code>List.tl</code></b></li>
+<li><b>サブ目標 37: 優先順位への統合</b></li>
 </ul>
 
-<h4>サブ目標 9-1: ASTの拡張</h4>
+<h4>サブ目標 31: ASTの拡張</h4>
 <pre>
 type exp =
   ...
@@ -1464,78 +1563,78 @@ type exp =
 </pre>
 <p><code>Tuple</code> は2個以上の要素を持つ組、<code>Empty</code> は空リスト、<code>Cons</code> はリストの先頭要素と残り、<code>Head</code> と <code>Tail</code> はリスト操作を表す。</p>
 
-<h4>サブ目標 9-2: 単なる括弧と組の区別</h4>
+<h4>サブ目標 32: 単なる括弧と組の区別</h4>
 <p><code>(e)</code> は単なる括弧だが、<code>(e1, e2)</code> は組である。最初の式を読んだ直後にカンマがあるかどうかで区別する。</p>
 <ul>
-<li><b>ミニ目標 9-2-1:</b> 開き括弧と最初の式を読む。</li>
-<li><b>ミニ目標 9-2-2:</b> カンマがなければ閉じ括弧を読み、最初の式をそのまま返す。</li>
-<li><b>ミニ目標 9-2-3:</b> カンマがあれば、後続する式を一つ以上読む。</li>
-<li><b>ミニ目標 9-2-4:</b> 読み取った式の列から <code>Tuple</code> を作る。</li>
+<li><b>ミニ目標 32-1:</b> 開き括弧と最初の式を読む。</li>
+<li><b>ミニ目標 32-2:</b> カンマがなければ閉じ括弧を読み、最初の式をそのまま返す。</li>
+<li><b>ミニ目標 32-3:</b> カンマがあれば、後続する式を一つ以上読む。</li>
+<li><b>ミニ目標 32-4:</b> 読み取った式の列から <code>Tuple</code> を作る。</li>
 </ul>
 <pre>
 (* paren_or_tuple_expr : input -&gt; (exp * input) option *)
 let paren_or_tuple_expr input =
-  (let* _ = token (keyword_p "(") in
+  (let* _ = token (symbol_p "(") in
    let* first = expr in
 
-   (let* _ = token (keyword_p ",") in
+   (let* _ = token (symbol_p ",") in
     let* second = expr in
 
     (* more : exp list -&gt; input -&gt; (exp list * input) option *)
     let rec more acc =
-      (let* _ = token (keyword_p ",") in
+      (let* _ = token (symbol_p ",") in
        let* e = expr in
        more (e :: acc))
       &lt;|&gt; return (List.rev acc)
     in
 
     let* elements = more [second; first] in
-    let* _ = token (keyword_p ")") in
+    let* _ = token (symbol_p ")") in
     return (Tuple elements))
 
    &lt;|&gt;
 
-   (let* _ = token (keyword_p ")") in
+   (let* _ = token (symbol_p ")") in
     return first))
   input
 </pre>
 <p>組の分岐を先に試す。カンマがなければその分岐は失敗し、同じ最初の入力から単なる括弧の分岐を試す。空の括弧 <code>()</code> を単位値として扱う場合は、最初の式を読む前に <code>"()"</code> を読む選択肢を追加する。</p>
 
-<h4>サブ目標 9-3: 空リスト</h4>
+<h4>サブ目標 33: 空リスト</h4>
 <pre>
 (* empty_list_expr : input -&gt; (exp * input) option *)
 let empty_list_expr input =
-  (let* _ = token (keyword_p "[") in
-   let* _ = token (keyword_p "]") in
+  (let* _ = token (symbol_p "[") in
+   let* _ = token (symbol_p "]") in
    return Empty)
   input
 </pre>
 <p>空リストは2つの記号を順番に読むだけでよい。ただし、空でないリストも <code>[</code> で始まるため、<code>empty_list_expr</code> と後述する <code>list_expr</code> は共通の接頭辞を持つ。</p>
 
-<h4>サブ目標 9-4: リストリテラル</h4>
+<h4>サブ目標 34: リストリテラル</h4>
 <p><code>[e1; e2; e3]</code> は、内部的には <code>e1 :: e2 :: e3 :: []</code> と同じ構造へ変換できる。</p>
 <ul>
-<li><b>ミニ目標 9-4-1:</b> 開き角括弧と最初の要素を読む。</li>
-<li><b>ミニ目標 9-4-2:</b> セミコロンと次の要素を、続く限り読む。</li>
-<li><b>ミニ目標 9-4-3:</b> 閉じ角括弧を読む。</li>
-<li><b>ミニ目標 9-4-4:</b> 要素列を右から <code>Cons</code> で畳み込む。</li>
+<li><b>ミニ目標 34-1:</b> 開き角括弧と最初の要素を読む。</li>
+<li><b>ミニ目標 34-2:</b> セミコロンと次の要素を、続く限り読む。</li>
+<li><b>ミニ目標 34-3:</b> 閉じ角括弧を読む。</li>
+<li><b>ミニ目標 34-4:</b> 要素列を右から <code>Cons</code> で畳み込む。</li>
 </ul>
 <pre>
 (* list_expr : input -&gt; (exp * input) option *)
 let list_expr input =
-  (let* _ = token (keyword_p "[") in
+  (let* _ = token (symbol_p "[") in
    let* first = expr in
 
    (* elements : exp list -&gt; input -&gt; (exp list * input) option *)
    let rec elements acc =
-     (let* _ = token (keyword_p ";") in
+     (let* _ = token (symbol_p ";") in
       let* e = expr in
       elements (e :: acc))
      &lt;|&gt; return (List.rev acc)
    in
 
    let* es = elements [first] in
-   let* _ = token (keyword_p "]") in
+   let* _ = token (symbol_p "]") in
    return
      (List.fold_right
         (fun e rest -&gt; Cons (e, rest))
@@ -1545,13 +1644,13 @@ let list_expr input =
 </pre>
 <p><code>elements</code> は効率よく先頭へ追加するため、途中では逆順に要素を蓄積する。終了時に <code>List.rev</code> で元の順へ戻す。その後、<code>List.fold_right</code> によって末尾の <code>Empty</code> から右向きに <code>Cons</code> を組み立てる。</p>
 
-<h4>サブ目標 9-5: 右結合の <code>::</code></h4>
+<h4>サブ目標 35: 右結合の <code>::</code></h4>
 <p><code>::</code> は右結合である。したがって、加算で使った左結合のアキュムレータ処理をそのまま使ってはならない。</p>
 <pre>
 (* cons_expr : input -&gt; (exp * input) option *)
 let rec cons_expr input =
   (let* e1 = plus_expr in
-   (let* _ = token (keyword_p "::") in
+   (let* _ = token (symbol_p "::") in
     let* e2 = cons_expr in
     return (Cons (e1, e2)))
    &lt;|&gt; return e1)
@@ -1564,7 +1663,7 @@ Cons (IntLit 1,
     Empty))
 </pre>
 
-<h4>サブ目標 9-6: <code>List.hd</code> と <code>List.tl</code></h4>
+<h4>サブ目標 36: <code>List.hd</code> と <code>List.tl</code></h4>
 <pre>
 (* head_expr : input -&gt; (exp * input) option *)
 let head_expr input =
@@ -1582,7 +1681,7 @@ let tail_expr input =
 </pre>
 <p><code>List.hd</code> と <code>List.tl</code> を一つのキーワードとして読むには、現在の識別子規則がピリオドを含まないことを利用できる。将来モジュール名やフィールド参照を一般化する場合は、<code>List</code>、<code>.</code>、<code>hd</code> を別々に読む設計へ変更する。</p>
 
-<h4>サブ目標 9-7: 優先順位への統合</h4>
+<h4>サブ目標 37: 優先順位への統合</h4>
 <p>空リスト、リストリテラル、組、<code>List.hd</code>、<code>List.tl</code> は基本式の選択肢へ追加する。一方、<code>::</code> は加算より弱く、比較より強い階層として置く。</p>
 <pre>
 primary_expr
@@ -1611,13 +1710,13 @@ expr
 <h3>10. パターンと <code>match</code> 式</h3>
 <p>式とパターンは役割が異なるため、別の型と別のパーサを用意する。最初からOCamlの全パターンを扱わず、整数、真理値、変数、ワイルドカード、組、空リスト、コンスに限定する。</p>
 <ul>
-<li><b>サブ目標 10-1: パターンのAST</b></li>
-<li><b>サブ目標 10-2: 基本パターン</b></li>
-<li><b>サブ目標 10-3: 組とリストのパターン</b></li>
-<li><b>サブ目標 10-4: 1本の節</b></li>
-<li><b>サブ目標 10-5: 複数の節と <code>match</code> 式</b></li>
+<li><b>サブ目標 38: パターンのAST</b></li>
+<li><b>サブ目標 39: 基本パターン</b></li>
+<li><b>サブ目標 40: 組とリストのパターン</b></li>
+<li><b>サブ目標 41: 1本の節</b></li>
+<li><b>サブ目標 42: 複数の節と <code>match</code> 式</b></li>
 </ul>
-<h4>サブ目標 10-1: パターンのAST</h4>
+<h4>サブ目標 38: パターンのAST</h4>
 <pre>
 type pattern =
   | PWildcard
@@ -1632,11 +1731,11 @@ type exp =
   ...
   | Match of exp * (pattern * exp) list
 </pre>
-<h4>サブ目標 10-2: 基本パターン</h4>
+<h4>サブ目標 39: 基本パターン</h4>
 <pre>
 (* simple_pattern : input -&gt; (pattern * input) option *)
 let simple_pattern input =
-  ((let* _ = token (keyword_p "_") in return PWildcard)
+  ((let* _ = token (symbol_p "_") in return PWildcard)
    &lt;|&gt; (let* n = token int_p in return (PInt n))
    &lt;|&gt; (let* _ = token (keyword_p "true") in return (PBool true))
    &lt;|&gt; (let* _ = token (keyword_p "false") in return (PBool false))
@@ -1644,19 +1743,47 @@ let simple_pattern input =
   input
 </pre>
 <p>ワイルドカードは値を束縛しない。変数パターンは一致した値をその名前へ束縛する。リテラルパターンは値が同じ場合だけ一致する。</p>
-<h4>サブ目標 10-3: 組とリストのパターン</h4>
+<h4>サブ目標 40: 組とリストのパターン</h4>
 <p>組パターンは式の組と同様にカンマ区切りで読む。空リストパターンは <code>[]</code>、コンスパターンは右結合の <code>::</code> で読む。</p>
 <pre>
+(* empty_list_pattern : input -&gt; (pattern * input) option *)
+let empty_list_pattern input =
+  (let* _ = token (symbol_p "[") in
+   let* _ = token (symbol_p "]") in
+   return PNil)
+  input
+
+(* tuple_pattern : input -&gt; (pattern * input) option *)
+let rec tuple_pattern input =
+  (let* _ = token (symbol_p "(") in
+   let* first = pattern in
+   let* _ = token (symbol_p ",") in
+   let* second = pattern in
+   let rec more acc =
+     (let* _ = token (symbol_p ",") in
+      let* p = pattern in
+      more (p :: acc))
+     &lt;|&gt; return (List.rev acc)
+   in
+   let* ps = more [second; first] in
+   let* _ = token (symbol_p ")") in
+   return (PTuple ps))
+  input
+
+(* atomic_pattern : input -&gt; (pattern * input) option *)
+and atomic_pattern input =
+  (empty_list_pattern &lt;|&gt; tuple_pattern &lt;|&gt; simple_pattern) input
+
 (* pattern : input -&gt; (pattern * input) option *)
-let rec pattern input =
+and pattern input =
   (let* p1 = atomic_pattern in
-   (let* _ = token (keyword_p "::") in
+   (let* _ = token (symbol_p "::") in
     let* p2 = pattern in
     return (PCons (p1, p2)))
    &lt;|&gt; return p1)
   input
 </pre>
-<h4>サブ目標 10-4: 1本の節</h4>
+<h4>サブ目標 41: 1本の節</h4>
 <pre>
 (* match_case : input -&gt; ((pattern * exp) * input) option *)
 let match_case input =
@@ -1667,20 +1794,20 @@ let match_case input =
   input
 </pre>
 <p>先頭の縦棒は最初の節では省略できるため、縦棒そのものは複数節を読む側で処理する方が、<code>match_case</code> の役割が単純になる。</p>
-<h4>サブ目標 10-5: 複数の節と <code>match</code> 式</h4>
+<h4>サブ目標 42: 複数の節と <code>match</code> 式</h4>
 <pre>
 (* match_expr : input -&gt; (exp * input) option *)
 let match_expr input =
   (let* _ = token (keyword_p "match") in
    let* target = expr in
    let* _ = token (keyword_p "with") in
-   let* _ = token (keyword_p "|") &lt;|&gt; return "" in
+   let* _ = token (symbol_p "|") &lt;|&gt; return "" in
    let* first = match_case in
 
    (* cases : (pattern * exp) list -&gt;
               input -&gt; ((pattern * exp) list * input) option *)
    let rec cases acc =
-     (let* _ = token (keyword_p "|") in
+     (let* _ = token (symbol_p "|") in
       let* c = match_case in
       cases (c :: acc))
      &lt;|&gt; return (List.rev acc)
@@ -1713,8 +1840,6 @@ let match_expr input =
 <a href="https://www.logic.cs.tsukuba.ac.jp/jikken/">トップ</a>, 
 <a href="https://www.logic.cs.tsukuba.ac.jp/jikken/parse.html">前へ</a>,
 <a href="https://www.logic.cs.tsukuba.ac.jp/jikken/binding.html">次へ</a>.
-<p>
-
 
 </body>
 </html>

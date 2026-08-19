@@ -1,7 +1,7 @@
 (* inputは、まだ読み取っていない文字のリストを表す *)
 type input = char list
 
-(* stringで受け取ったソースコード列をinput型(stringのリスト)に変換する *)
+(* stringで受け取ったソースコード列をinput型(charのリスト)に変換する *)
 (* chars_of_string : string -> input *)
 let chars_of_string s = 
   List.of_seq (String.to_seq s)
