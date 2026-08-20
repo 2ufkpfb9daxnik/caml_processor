@@ -49,14 +49,14 @@ let int_p input =
     Some (int_of_string str, rest)
 
 (* +や*といった指定された文字と、入力の先頭が一致するか確認し、一致したら、その文字列をトークンとして返す *)
-(* keyword_p: string -> input -> (string * input) option *)
-let keyword_p kw input =
+(* string_p: string -> input -> (string * input) option *)
+let string_p expected input =
 
   (* 補助関数、targetの文字のリストと、現在の入力charsが順番に一致するか確認する *)
   (* check_chars : input -> char list -> (string * input) option *)
   let rec check_chars chars target =
     match target with
-    | [] -> Some (kw, chars) (* 探したい文字(target)をすべて読み終えたら、一致したとみなして成功 *)
+    | [] -> Some (expected, chars) (* 探したい文字(target)をすべて読み終えたら、一致したとみなして成功 *)
     | t :: ts ->
       (match char_p t chars with
       | Some (_, rest) -> check_chars rest ts (* 1文字一致したので、残りを再帰的に確認する*)
@@ -64,7 +64,63 @@ let keyword_p kw input =
     in
 
   (* 探したい文字列kwを文字のリストに変換してから、check_charsに渡す *)
-  check_chars input (List.of_seq (String.to_seq kw))
+  check_chars input (chars_of_string expected)
+
+  (* +、*、->などの記号を読む *)
+  (* symbol_p: string -> input -> (string * input) option *)
+  let symbol_p symbol input =
+    string_p symbol input
+
+  (* 識別子の続きを構成できる文字かを判定する *)
+  (* is_ident_letter : char -> bool *)
+  let is_ident_letter c =
+    (c >= 'a' && c <= 'z')
+    || (c >= 'A' && c <= 'Z')
+    || (c >= '0' && c <= '9')
+    || c = '_'
+
+  (* if、then、trueなどの予約語を読む。識別子の途中には一致させない *)
+  (* keyword_p: string -> input -> (string * input) option *)
+  let keyword_p keyword input =
+    match string_p keyword input with
+    | None -> None
+    | Some (_, c :: _) when is_ident_letter c -> None
+    | Some (_, rest) -> Some (keyword, rest)
+
+(* 課題4-2-1 *)
+type lexeme =
+| IntLexeme of int
+| SymbolLexeme of string
+
+(* lex_one_cheas: input -> (lexeme * inpput) option *)
+let lex_one_chars input =
+  let input = skip_spaces input in
+  match int_p input with
+  | Some (n, rest) -> Some (IntLexeme n, rest)
+  | None ->
+    (match symbol_p "+" input with
+    | Some (s, rest) -> Some (SymbolLexeme s, rest)
+    | None -> 
+        match symbol_p "*" input with
+        | Some (s, rest) -> Some (SymbolLexeme s, rest)
+        | None ->
+          match symbol_p "-" input with
+          | Some (s, rest) -> Some (SymbolLexeme s, rest)
+          | None -> 
+            match symbol_p "/" input with
+            | Some (s, rest) -> Some (SymbolLexeme s, rest)
+            | None -> None)
+
+(* lex_one: string -> (lexeme * input) option *)
+let lex_one source =
+  lex_one_chars (chars_of_string source)
+
+
+
+
+
+
+
 
 
 

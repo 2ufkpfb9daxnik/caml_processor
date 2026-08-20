@@ -340,14 +340,65 @@ let rec skip_spaces input =
 </pre>
 
 <h4>サブ目標 4: 意味のある塊（トークン）を切り出す</h4>
-最後に、「数字が連続していれば束ねて整数に変換し、特定の記号が来ればキーワードとして切り出す」という処理を実装する。これは以下の2つのミニ目標からなる。
+
+最後に、「数字が連続していれば束ねて整数に変換し、特定の文字列が来れば記号またはキーワードとして切り出す」という処理を実装する。
+
+<p>
+ここで、記号とキーワードは区別して考える。
+<code>+</code>、<code>*</code>、<code>-&gt;</code> などは記号であり、
+指定された文字列と入力の先頭が一致しているかを確認すればよい。
+一方、<code>if</code>、<code>then</code>、<code>true</code> などはキーワードであり、
+変数名として使用できる識別子と区別する必要がある。
+</p>
+
+<p>
+例えば、入力が <code>"if true then 1 else 2"</code> であれば、
+先頭の <code>"if"</code> はキーワードとして読み取る。
+しかし、入力が <code>"ifx"</code> である場合は、
+先頭の2文字が <code>"if"</code> と一致していても、
+<code>"ifx"</code> 全体を一つの識別子として扱う必要がある。
+したがって、キーワードの読み取りでは、
+文字列が一致することに加えて、
+その直後に識別子を構成する文字が続いていないことも確認する。
+</p>
+
+<p>
+なお、現段階ではまだ <code>if</code> 式そのものを構文解析の対象にはしていない。ここで <code>if</code> を使用しているのは、キーワードを読み取る処理の例を示すためである。ここでは後の拡張でも再利用できる一般的な <code>keyword_p</code> を先に作成し、実際に <code>if</code> 式を構文解析する処理は後の節で追加する。
+</p>
+
+<p>
+この処理は、以下の4つのミニ目標に分割する。
+</p>
 
 <ul>
-<li> <b>ミニ目標 4-1: 整数の切り出し (<code>int_p</code>)</b><br>
-数字（<code>'0'</code>〜<code>'9'</code>）が連続している間だけ文字を読み進め、それらを束ねて OCaml の <code>int</code> 型に変換して返す。
-<li> <b>ミニ目標 4-2: キーワードや記号の切り出し (<code>keyword_p</code>)</b><br>
-<code>+</code> や <code>*</code> といった指定された文字列（文字のリスト）と、入力の先頭が完全に一致するかを順番に確認し、一致すればその文字列をトークンとして返す。
+<li>
+<b>ミニ目標 4-1: 整数の切り出し（<code>int_p</code>）</b><br>
+数字（<code>'0'</code>〜<code>'9'</code>）が連続している間だけ文字を読み進め、
+それらを束ねてOCamlの <code>int</code> 型に変換して返す。
+</li>
+
+<li>
+<b>ミニ目標 4-2: 指定された文字列との一致確認（<code>string_p</code>）</b><br>
+指定された文字列と入力の先頭が順番に一致するかを確認する。
+この関数は、記号とキーワードの両方を読み取るための共通部品として使用する。
+</li>
+
+<li>
+<b>ミニ目標 4-3: 記号の切り出し（<code>symbol_p</code>）</b><br>
+<code>+</code>、<code>*</code>、<code>=</code>、<code>-&gt;</code> などの記号と
+入力の先頭が一致するかを確認し、一致すればその記号と残りの入力を返す。
+</li>
+
+<li>
+<b>ミニ目標 4-4: キーワードの切り出し（<code>keyword_p</code>）</b><br>
+<code>if</code>、<code>then</code>、<code>true</code> などのキーワードと
+入力の先頭が一致するかを確認する。
+さらに、キーワードの直後に英数字またはアンダースコアが続いていないことを確認し、
+識別子の一部分をキーワードとして誤って切り出さないようにする。
+</li>
 </ul>
+
+<h5>ミニ目標 4-1: 整数の切り出し（<code>int_p</code>）</h5>
 
 <pre>
 (* 数字の列が続く限り、束ねて整数に変換する *)
@@ -357,7 +408,7 @@ let int_p input =
     c &gt;= '0' &amp;&amp; c &lt;= '9' in
   
   (* 補助関数、数字が続く限り、acc（アキュムレータ）に文字を溜め込む *)
-  (* read_digits : input -> char list -> char list * input *)
+  (* read_digits : input -&gt; char list -&gt; char list * input *)
   let rec read_digits chars acc =
     match chars with
     | c :: cs when is_digit c -&gt; read_digits cs (c :: acc)
@@ -365,45 +416,197 @@ let int_p input =
   in
   
   match read_digits input [] with
-  | ([], _) -&gt; None (* アキュムレータが空 = 最初から数字が一つもなかった場合 *)
+  | ([], _) -&gt; None
+      (* アキュムレータが空、つまり最初から数字が一つもなかった場合 *)
+      
   | (digits, rest) -&gt;
-      (* 文字のリストを文字列(string)に変換してから、整数(int)に変換する *)
+      (* 文字のリストを文字列に変換してから、整数に変換する *)
       let str = String.of_seq (List.to_seq digits) in
       Some (int_of_string str, rest)
 </pre>
 
-ここで登場した <code>acc</code>（アキュムレータ）とは、再帰呼び出しの中で「計算の途中結果を蓄積しておくための引数」のことである。
-たとえば入力が <code>['1'; '2'; '+']</code> だった場合、<code>read_digits</code> は以下のように動作する。
+ここで登場した <code>acc</code>（アキュムレータ）とは、
+再帰呼び出しの中で「計算の途中結果を蓄積しておくための引数」のことである。
+
+たとえば入力が <code>['1'; '2'; '+']</code> だった場合、
+<code>read_digits</code> は以下のように動作する。
+
 <ol>
-<li> <code>read_digits ['1'; '2'; '+'] []</code> が呼ばれる。</li>
-<li> <code>'1'</code> は数字なので、<code>acc</code> に追加して再帰: <code>read_digits ['2'; '+'] ['1']</code></li>
-<li> <code>'2'</code> は数字なので、<code>acc</code> に追加して再帰: <code>read_digits ['+'] ['2'; '1']</code></li>
-<li> <code>'+'</code> は数字ではないので終了。この時点で <code>acc</code> は <code>['2'; '1']</code> である。<code>List.rev acc</code> によって順序を戻してから、<code>(['1'; '2'], ['+'])</code> が返る。</li>
+<li>
+<code>read_digits ['1'; '2'; '+'] []</code> が呼ばれる。
+</li>
+
+<li>
+<code>'1'</code> は数字なので、<code>acc</code> に追加して再帰する。
+<code>read_digits ['2'; '+'] ['1']</code>
+</li>
+
+<li>
+<code>'2'</code> は数字なので、<code>acc</code> に追加して再帰する。
+<code>read_digits ['+'] ['2'; '1']</code>
+</li>
+
+<li>
+<code>'+'</code> は数字ではないので終了する。
+この時点で <code>acc</code> は <code>['2'; '1']</code> である。
+<code>List.rev acc</code> によって順序を戻してから、
+<code>(['1'; '2'], ['+'])</code> が返る。
+</li>
 </ol>
-終了時に <code>List.rev</code> を使って <code>acc</code> を逆順（<code>['1'; '2']</code>）に戻すことで、正しい数字の並びを取得している。
+
+<p>
+文字を <code>acc</code> の先頭へ追加しているため、
+読み取った途中の文字列は逆順になる。
+終了時に <code>List.rev</code> を使って
+<code>acc</code> を <code>['1'; '2']</code> の順へ戻すことで、
+正しい数字の並びを取得している。
+</p>
+
+<h5>ミニ目標 4-2: 指定された文字列との一致確認（<code>string_p</code>）</h5>
+
+<p>
+記号とキーワードは、どちらも複数の文字から構成される可能性がある。
+例えば、<code>+</code> は1文字の記号だが、
+<code>-&gt;</code> は2文字の記号であり、
+<code>then</code> は4文字のキーワードである。
+</p>
+
+<p>
+そこで、指定された文字列と入力の先頭が順番に一致するかを確認する
+共通の関数 <code>string_p</code> を作る。
+</p>
 
 <pre>
 (* 指定された文字列と入力の先頭が一致するか確認する *)
 (* string_p : string -&gt; input -&gt; (string * input) option *)
 let string_p expected input =
   
-  (* 補助関数 check_chars: targetの文字リストと、現在の入力charsが順番に一致するか確認する *)
+  (* targetの文字リストと、現在の入力charsが順番に一致するか確認する *)
   (* check_chars : input -&gt; char list -&gt; (string * input) option *)
   let rec check_chars chars target =
     match target with
-    | [] -&gt; Some (expected, chars)
+    | [] -&gt;
+        Some (expected, chars)
+        (* targetをすべて読み終えたので、文字列全体が一致した *)
+        
     | t :: ts -&gt;
         (match char_p t chars with
-         | Some (_, rest) -&gt; check_chars rest ts
-         | None -&gt; None)
+         | Some (_, rest) -&gt;
+             check_chars rest ts
+             (* 1文字一致したので、残りの文字を確認する *)
+             
+         | None -&gt;
+             None)
+             (* 途中で一致しない文字が見つかった *)
   in
+  
   check_chars input (chars_of_string expected)
+</pre>
 
-(* +、*、-&gt; などの記号を読む *)
+<p>
+<code>string_p</code> は、第1引数として確認したい文字列
+<code>expected</code> を受け取る。
+その文字列を <code>chars_of_string</code> によって文字リストへ変換し、
+入力の文字リストと先頭から一文字ずつ比較する。
+</p>
+
+<p>
+例えば、次の呼び出しを考える。
+</p>
+
+<pre>
+string_p "-&gt;" ['-'; '&gt;'; ' '; 'x']
+</pre>
+
+<p>
+<code>check_chars</code> は、最初に <code>'-'</code>、
+次に <code>'&gt;'</code> が一致することを確認する。
+確認対象をすべて読み終えた時点で、残っている入力は
+<code>[' '; 'x']</code> であるため、結果は次のようになる。
+</p>
+
+<pre>
+Some ("-&gt;", [' '; 'x'])
+</pre>
+
+<p>
+途中で一文字でも一致しなければ <code>None</code> を返す。
+</p>
+
+<h5>ミニ目標 4-3: 記号の切り出し（<code>symbol_p</code>）</h5>
+
+<p>
+<code>+</code>、<code>*</code>、<code>=</code>、<code>-&gt;</code> などの記号は、
+指定された文字列と入力の先頭が一致すれば読み取りに成功してよい。
+そのため、記号の読み取りには、先ほど定義した
+<code>string_p</code> をそのまま利用できる。
+</p>
+
+<pre>
+(* +、*、=、-&gt; などの記号を読む *)
 (* symbol_p : string -&gt; input -&gt; (string * input) option *)
 let symbol_p symbol input =
   string_p symbol input
+</pre>
 
+<p>
+例えば、次の式は入力の先頭にある <code>+</code> を読み取る。
+</p>
+
+<pre>
+symbol_p "+" ['+'; '1'; '2']
+</pre>
+
+<p>
+結果は次の通りである。
+</p>
+
+<pre>
+Some ("+", ['1'; '2'])
+</pre>
+
+<p>
+<code>symbol_p</code> の内部処理は現時点では
+<code>string_p</code> を呼び出すだけである。
+それでも別の関数として定義するのは、
+「この文字列を記号として読んでいる」という目的を関数名から明確にするためである。
+</p>
+
+<h5>ミニ目標 4-4: キーワードの切り出し（<code>keyword_p</code>）</h5>
+
+<p>
+キーワードも、最初は <code>string_p</code> を使って
+入力の先頭と一致するかを確認する。
+ただし、キーワードでは、文字列が一致しただけで
+直ちに成功としてはいけない。
+</p>
+
+<p>
+例えば、<code>keyword_p "if"</code> を使って
+次の入力を調べる場合を考える。
+</p>
+
+<pre>
+['i'; 'f'; 'x']
+</pre>
+
+<p>
+先頭の2文字だけを見ると <code>"if"</code> と一致している。
+しかし、この入力は <code>if</code> というキーワードの後ろに
+変数 <code>x</code> が続いているのではなく、
+<code>ifx</code> という一つの識別子であると考えるべきである。
+</p>
+
+<p>
+そのため、キーワードの文字列が一致した後で、
+残りの入力の先頭文字を確認する。
+次の文字がアルファベット、数字、アンダースコアのいずれかであれば、
+その文字は識別子の続きになり得る。
+この場合は、読み取った文字列が識別子の一部分である可能性があるため、
+キーワードとしての読み取りを失敗させる。
+</p>
+
+<pre>
 (* 識別子の続きを構成できる文字かを判定する *)
 (* is_ident_letter : char -&gt; bool *)
 let is_ident_letter c =
@@ -411,15 +614,103 @@ let is_ident_letter c =
   || (c &gt;= 'A' &amp;&amp; c &lt;= 'Z')
   || (c &gt;= '0' &amp;&amp; c &lt;= '9')
   || c = '_'
+</pre>
 
-(* if、then、true などの予約語を読む。識別子の途中には一致させない *)
+<p>
+<code>is_ident_letter</code> は、文字が識別子の途中に現れ得るかを判定する。
+例えば、次の文字については <code>true</code> を返す。
+</p>
+
+<pre>
+is_ident_letter 'a'
+is_ident_letter 'Z'
+is_ident_letter '3'
+is_ident_letter '_'
+</pre>
+
+<p>
+一方、空白や演算子などに対しては <code>false</code> を返す。
+</p>
+
+<pre>
+is_ident_letter ' '
+is_ident_letter '+'
+is_ident_letter '('
+</pre>
+
+<p>
+この判定関数を使って、キーワードを読み取る
+<code>keyword_p</code> を次のように定義する。
+</p>
+
+<pre>
+(* if、then、true などの予約語を読む *)
+(* 識別子の途中には一致させない *)
 (* keyword_p : string -&gt; input -&gt; (string * input) option *)
 let keyword_p keyword input =
   match string_p keyword input with
-  | None -&gt; None
-  | Some (_, c :: _) when is_ident_letter c -&gt; None
-  | Some (_, rest) -&gt; Some (keyword, rest)
+  | None -&gt;
+      None
+      (* キーワードの文字列そのものが一致しなかった *)
+      
+  | Some (_, c :: _) when is_ident_letter c -&gt;
+      None
+      (* 文字列は一致したが、その直後が識別子の続きなので、
+         キーワードの一部分ではなく、一つの識別子とみなす *)
+      
+  | Some (_, rest) -&gt;
+      Some (keyword, rest)
+      (* 文字列が一致し、その直後も識別子の続きではないので成功 *)
 </pre>
+
+<p>
+例えば、次の入力では <code>"if"</code> の直後に空白があるため、
+キーワードとしての読み取りに成功する。
+</p>
+
+<pre>
+keyword_p "if" ['i'; 'f'; ' '; 'x']
+</pre>
+
+<p>
+結果は次の通りである。
+</p>
+
+<pre>
+Some ("if", [' '; 'x'])
+</pre>
+
+<p>
+一方、次の入力では <code>"if"</code> の直後に
+識別子を構成できる文字 <code>'x'</code> が続いている。
+</p>
+
+<pre>
+keyword_p "if" ['i'; 'f'; 'x']
+</pre>
+
+<p>
+この場合、入力は <code>ifx</code> という一つの識別子であるため、
+<code>keyword_p "if"</code> は <code>None</code> を返す。
+</p>
+
+<pre>
+None
+</pre>
+
+<p>
+同様に、<code>keyword_p "true"</code> は
+<code>true</code> には成功するが、
+<code>truevalue</code> の先頭だけを <code>true</code> として
+読み取ることはない。
+</p>
+
+<p>
+このように、<code>string_p</code> は単純な文字列の一致確認、
+<code>symbol_p</code> は記号の読み取り、
+<code>keyword_p</code> は識別子との境界を確認したキーワードの読み取り、
+という異なる役割を持つ。
+</p>
 
 ここまでに定義した関数群だけで、<code>eval1</code> で扱う構文（整数、<code>+</code>、<code>*</code>）を文字リストからトークンとして切り出すための部品はすべて揃っている。この後作成する構文解析器（parser）は、これらの関数を呼び出して結果を繋ぎ合わせるだけで構成できる。
 
