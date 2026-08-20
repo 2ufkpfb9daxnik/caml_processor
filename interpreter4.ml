@@ -1,3 +1,29 @@
+(* 式の型 *)
+type exp =
+| IntLit of int
+| Plus of exp * exp
+| Times of exp * exp
+| Minus of exp * exp
+| Div of exp * exp
+| BoolLit of bool
+| If of exp * exp * exp
+| Eq of exp * exp
+| Greater of exp * exp
+| Var of string
+| Let of string * exp * exp
+
+(* 値の型 *)
+type value =
+| IntVal of int
+| BoolVal of bool
+
+
+
+
+
+
+
+
 (* inputは、まだ読み取っていない文字のリストを表す *)
 type input = char list
 
@@ -87,33 +113,95 @@ let string_p expected input =
     | Some (_, c :: _) when is_ident_letter c -> None
     | Some (_, rest) -> Some (keyword, rest)
 
-(* 課題4-2-1 *)
-type lexeme =
-| IntLexeme of int
-| SymbolLexeme of string
+(* 出力の型の定義 *)
+type 'a parser_result = ('a * input) option
 
-(* lex_one_cheas: input -> (lexeme * inpput) option *)
-let lex_one_chars input =
-  let input = skip_spaces input in
-  match int_p input with
-  | Some (n, rest) -> Some (IntLexeme n, rest)
-  | None ->
-    (match symbol_p "+" input with
-    | Some (s, rest) -> Some (SymbolLexeme s, rest)
-    | None -> 
-        match symbol_p "*" input with
-        | Some (s, rest) -> Some (SymbolLexeme s, rest)
-        | None ->
-          match symbol_p "-" input with
-          | Some (s, rest) -> Some (SymbolLexeme s, rest)
-          | None -> 
-            match symbol_p "/" input with
-            | Some (s, rest) -> Some (SymbolLexeme s, rest)
-            | None -> None)
+(* 整数の抽象構文木が作れればSome(IntLit n, 残りの文字リスト)、失敗すればNone*)
+(* primary_expr: input -> (exp * input) option *)
+let primary_expr input =
+  let input_after_spaces = skip_spaces input in
 
-(* lex_one: string -> (lexeme * input) option *)
-let lex_one source =
-  lex_one_chars (chars_of_string source)
+  (* 字句解析器の int_pを呼び出して整数を読む *)
+  match int_p input_after_spaces with
+  | Some (n, rest) ->
+    (* 整数nが読めたら、それをIntLit(n)という抽象構文木に変換して返す *)
+    Some (IntLit n, rest)
+  | None -> None
+
+(* 掛け算割り算のパース *)
+(* times_div_expr: input -> (exp * input) option *)
+let rec times_div_expr input =
+  match primary_expr input with
+  | None -> None
+  | Some (e1, rest1) ->
+    let rec parse_rest current_e current_rest =
+      let r = skip_spaces current_rest in
+      match symbol_p "*" r with
+      | Some (_, rest2) ->
+        ( match primary_expr rest2 with
+          | Some (e2, rest3) ->
+            (* 左右の構文木が揃ったあとの処理 *)
+            let new_e = Times (current_e, e2) in
+            parse_rest new_e rest3
+          | None ->
+            (* 右辺が読めなければ、そこまでの結果を返す *)
+            Some (current_e, current_rest) )
+      | None ->
+        (* "*" がなければ割り算を確認する *)
+        match symbol_p "/" r with
+        | Some (_, rest4) ->
+          ( match primary_expr rest4 with
+            | Some (e3, rest5) ->
+              let new_e = Div (current_e, e3) in
+              parse_rest new_e rest5
+            | None -> Some (current_e, current_rest) )
+        | None -> Some (current_e, current_rest)
+    in
+    parse_rest e1 rest1
+
+(* 足し算引き算のパース *)
+(* plus_minus_expr: input -> (exp * input) option *)
+let rec plus_minus_expr input =
+  (* 左辺の読み取り(掛け算や割り算を含む可能性があるので、times_div_exprを呼ぶ) *)
+  match times_div_expr input with
+  | None -> None
+  | Some (e1, rest1) ->
+    let rec parse_rest current_e current_rest =
+      let r = skip_spaces current_rest in
+      (* 演算子+の確認と、右辺(times_div_expr)の読み取り *)
+      match symbol_p "+" r with
+      | Some (_, rest2) ->
+        ( match times_div_expr rest2 with
+          | Some (e2, rest3) -> 
+            let new_e = Plus (current_e, e2) in
+            parse_rest new_e rest3
+          | None -> Some (current_e, current_rest))
+      | None -> 
+        (* "+"がなければ引き算を確認する *)
+        match symbol_p "-" r with
+        | Some (_, rest4) ->
+          ( match plus_minus_expr rest4 with
+            | Some (e3, rest5) ->
+              let new_e = Minus (current_e, e3) in
+              parse_rest new_e rest5
+            | None -> Some (current_e, current_rest))
+        | None -> Some (current_e, current_rest)
+    in
+    parse_rest e1 rest1
+
+(* エントリポイント *)
+(* parse: string -> exp *)
+let parse s =
+  let chars = chars_of_string s in
+  (* 式全体のパースを開始する(一番優先度が低いplus_minus_exprから呼ぶ)*)
+  match plus_minus_expr chars with
+  | Some (ast, rest) ->
+    (* パース成功。最後に残った空白を読み飛ばす *)
+    let final_rest = skip_spaces rest in
+    if final_rest = []
+      then ast (* 残っていなければ、完成したastを返す *)
+      else failwith "Parse Error: 式の後ろに余分な文字があります"
+  | None -> failwith "Parse Error: 構文解析に失敗しました"
 
 
 
@@ -129,27 +217,6 @@ let lex_one source =
 
 
 
-
-
-
-(* 式の型 *)
-type exp =
-| IntLit of int
-| Plus of exp * exp
-| Times of exp * exp
-| Minus of exp * exp
-| Div of exp * exp
-| BoolLit of bool
-| If of exp * exp * exp
-| Eq of exp * exp
-| Greater of exp * exp
-| Var of string
-| Let of string * exp * exp
-
-(* 値の型 *)
-type value =
-| IntVal of int
-| BoolVal of bool
 
 (* 環境の作成、更新、環境 *)
 let emptyenv () = []
