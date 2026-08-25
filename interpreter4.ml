@@ -116,17 +116,27 @@ let string_p expected input =
 (* 出力の型の定義 *)
 type 'a parser_result = ('a * input) option
 
-(* 整数の抽象構文木が作れればSome(IntLit n, 残りの文字リスト)、失敗すればNone*)
+(* 整数、真偽値のパース *)
 (* primary_expr: input -> (exp * input) option *)
 let primary_expr input =
   let input_after_spaces = skip_spaces input in
 
-  (* 字句解析器の int_pを呼び出して整数を読む *)
+  (* まず整数かためす *)
   match int_p input_after_spaces with
   | Some (n, rest) ->
     (* 整数nが読めたら、それをIntLit(n)という抽象構文木に変換して返す *)
     Some (IntLit n, rest)
-  | None -> None
+  | None -> 
+
+    (* 整数ではないなら、true か試す *)
+    ( match keyword_p "true" input with
+      | Some (_, rest) -> Some (BoolLit true, rest)
+      | None ->
+        
+        (* trueでもないならfalseか試す *)
+        ( match keyword_p "false" input with
+          | Some (_, rest) -> Some (BoolLit false, rest)
+          | None -> None)) (* 全てに失敗した *)
 
 (* 掛け算割り算のパース *)
 (* times_div_expr: input -> (exp * input) option *)
@@ -188,6 +198,9 @@ let rec plus_minus_expr input =
         | None -> Some (current_e, current_rest)
     in
     parse_rest e1 rest1
+
+(* 比較演算のパース *)
+
 
 (* エントリポイント *)
 (* parse: string -> exp *)

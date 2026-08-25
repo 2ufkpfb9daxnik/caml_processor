@@ -1058,43 +1058,128 @@ let rec primary_expr input =
 </pre>
 
 <h4>サブ目標 11: 比較演算式のパース（新しい優先順位の追加）</h4>
-次に、比較演算子 <code>=</code> のパース処理を追加する。
-ここで文法の「優先順位」について考えてみよう。<code>1 + 2 = 3</code> という式は、<code>(1 + 2) = 3</code> と解釈されるべきであり、<code>1 + (2 = 3)</code> と解釈されてはならない。
-つまり、<b>「比較演算子は、足し算よりも優先順位が低い」</b>ということになる。
 
-これを実装に落とし込むには、これまでエントリーポイントだった <code>plus_expr</code> をさらに外側から呼び出す新しい関数 <code>comp_expr</code> を作ればよい。
+<p>次に、比較演算子 <code>=</code> のパース処理を追加する。
+ここで文法の「優先順位」について考えてみよう。
+<code>1 + 2 = 3</code> という式は、
+<code>(1 + 2) = 3</code> と解釈されるべきであり、
+<code>1 + (2 = 3)</code> と解釈されてはならない。
+つまり、<b>「比較演算子は、足し算よりも優先順位が低い」</b>
+ということになる。
+</p>
+
+<p>これを実装に落とし込むには、
+これまでエントリーポイントだった <code>plus_expr</code> をさらに外側から呼び出す新しい関数
+<code>comp_expr</code> を作ればよい。
+</p>
+
+<p>
+また、
+<code>= &lt; &gt;</code> などの比較演算子は左結合として定義されている。
+そこで、<code>1 = 2 = 3</code> のように比較演算子が連続した場合にも対応できるよう、
+足し算やかけ算と同様にアキュムレータを使って構文木を組み立てる。
+</p>
+
+<pre>
+1 = 2 = 3
+
+      ↓ 左結合
+
+Eq (Eq (IntLit 1, IntLit 2), IntLit 3)
+</pre>
+
+<p>
+ただし、このような構文木を作れることと、
+その式が正しい型を持つことは別の問題である。
+<code>1 = 2</code> の結果は真理値なので、
+その結果と整数 <code>3</code> を比較する式は、
+後の型検査または評価の段階でエラーになる。
+構文解析器の役割は、ここでは入力の構造に従って
+構文木を作るところまでである。
+</p>
 
 <ul>
-<li> <b>ミニ目標 11-1: 左辺（足し算式）の読み取り</b><br>
-比較演算の構成要素は、より優先度の高い <code>plus_expr</code> であるはずなので、まずはこれを呼び出して左辺（<code>e1</code>）を取得する。
-<li> <b>ミニ目標 11-2: <code>=</code> の確認と右辺の読み取り</b><br>
-<code>=</code> があるか確認し、あれば右辺の <code>plus_expr</code> を読み取って <code>Eq</code> の構文木を作る。
-<li> <b>ミニ目標 11-3: 演算子がない場合の処理</b><br>
-<code>=</code> が存在しなければ、比較式ではない（単なる足し算や整数の式である）とみなし、左辺 <code>e1</code> をそのまま返す。
+<li>
+<b>ミニ目標 11-1: 左辺（足し算式）の読み取り</b><br>
+比較演算の構成要素は、より優先度の高い
+<code>plus_expr</code> であるため、
+まずはこれを呼び出して左辺
+<code>e1</code> を取得する。
+</li>
+
+<li>
+<b>ミニ目標 11-2: 連続する比較演算のためのアキュムレータの準備</b><br>
+最初に読み取った左辺をアキュムレータ
+<code>current_e</code> として保持し、
+比較演算子が続く限り構文木を更新する
+補助関数 <code>parse_rest</code> を用意する。
+</li>
+
+<li>
+<b>ミニ目標 11-3: <code>=</code> と右辺の読み取り</b><br>
+入力の先頭に <code>=</code> があれば、
+その右辺を <code>plus_expr</code> で読み取る。
+</li>
+
+<li>
+<b>ミニ目標 11-4: 構文木の結合と再帰</b><br>
+現在の構文木 <code>current_e</code> と
+新しく読み取った右辺 <code>e2</code> から
+<code>Eq (current_e, e2)</code> を作り、
+それを新しいアキュムレータとして処理を続ける。
+</li>
+
+<li>
+<b>ミニ目標 11-5: 比較演算子がない場合の処理</b><br>
+<code>=</code> が続かなければ、
+現在までに作った構文木をそのまま返す。
+</li>
 </ul>
 
 <pre>
 (* ミニ目標 11: 比較演算のパース *)
-(* （※比較演算は 1 = 2 = 3 のように連続しないものと仮定し、アキュムレータを用いたループは行わない） *)
 (* comp_expr : input -&gt; (exp * input) option *)
 let rec comp_expr input =
   
-  (* ミニ目標 11-1: 左辺の読み取り（plus_expr を呼ぶ） *)
+  (* ミニ目標 11-1:
+     最初の左辺を plus_expr で読み取る *)
   match plus_expr input with
-  | None -&gt; None
-  | Some (e1, rest1) -&gt;
-      let r = skip_spaces rest1 in
+  | None -&gt;
+      None
       
-      (* ミニ目標 11-2: "=" の確認と右辺の読み取り *)
-      (match symbol_p "=" r with
-       | Some (_, rest2) -&gt;
-           (match plus_expr rest2 with
-            | Some (e2, rest3) -&gt; Some (Eq (e1, e2), rest3)
-            | None -&gt; Some (e1, rest1))
-       
-       | None -&gt;
-           (* ミニ目標 11-3: "=" が無ければ、左辺をそのまま返す *)
-           Some (e1, rest1))
+  | Some (e1, rest1) -&gt;
+      
+      (* ミニ目標 11-2:
+         current_e に、ここまでに作った構文木を保持する *)
+      (* parse_rest : exp -&gt; input -&gt; (exp * input) option *)
+      let rec parse_rest current_e current_rest =
+        let r = skip_spaces current_rest in
+        
+        (* ミニ目標 11-3:
+           比較演算子 "=" が続くか確認する *)
+        match symbol_p "=" r with
+        | None -&gt;
+            (* ミニ目標 11-5:
+               比較演算子がなければ現在の木を返す *)
+            Some (current_e, current_rest)
+            
+        | Some (_, rest2) -&gt;
+            (* "=" の右辺を読み取る *)
+            (match plus_expr rest2 with
+             | None -&gt;
+                 (* "=" があるのに右辺がないため、
+                    比較式として失敗する *)
+                 None
+                 
+             | Some (e2, rest3) -&gt;
+                 (* ミニ目標 11-4:
+                    左右の式から新しい Eq を作り、
+                    さらに比較演算子が続くか調べる *)
+                 let new_e = Eq (current_e, e2) in
+                 parse_rest new_e rest3)
+      in
+      
+      parse_rest e1 rest1
 </pre>
 
 <h4>サブ目標 12: エントリーポイントの更新</h4>
